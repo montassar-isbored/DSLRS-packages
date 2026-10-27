@@ -1,0 +1,874 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DSLRS Interactive Cryptographic Playground</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+</head>
+<body class="bg-[var(--background)] text-[var(--foreground)] antialiased p-6">
+  <div class="max-w-7xl mx-auto space-y-6">
+
+    <!-- Header -->
+    <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-5 shadow-sm flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+      <div>
+        <div class="flex items-center gap-2.5">
+          <span class="px-2.5 py-0.5 rounded-md text-xs font-semibold bg-[var(--primary)] text-[var(--primary-foreground)]">secp256k1</span>
+          <h1 class="text-xl font-bold tracking-tight">DSLRS Interactive Playground</h1>
+        </div>
+        <p class="text-sm text-[var(--muted-foreground)] mt-1">
+          Deanonymizable Scoped Linkable Ring Signatures — Powered by the <code class="px-1.5 py-0.5 rounded bg-[var(--secondary)] text-[var(--secondary-foreground)] text-xs">dslrs</code> Node/TypeScript SDK
+        </p>
+      </div>
+      <div class="flex flex-wrap items-center gap-3 text-xs">
+        <div class="px-3 py-2 rounded-lg bg-[var(--secondary)] text-[var(--secondary-foreground)] border border-[var(--border)]">
+          <span class="text-[var(--muted-foreground)]">Min Ring ($n_{\min}$):</span>
+          <strong id="stat-nmin" class="ml-1">3</strong>
+        </div>
+        <div class="px-3 py-2 rounded-lg bg-[var(--secondary)] text-[var(--secondary-foreground)] border border-[var(--border)]">
+          <span class="text-[var(--muted-foreground)]">Opener Network ($k$-of-$N$):</span>
+          <strong id="stat-threshold" class="ml-1">5 of 8</strong>
+        </div>
+        <div class="px-3 py-2 rounded-lg bg-[var(--secondary)] text-[var(--secondary-foreground)] border border-[var(--border)]">
+          <span class="text-[var(--muted-foreground)]">Network Key $P_{\text{net}}$:</span>
+          <code id="stat-pnet" class="ml-1 font-mono">...</code>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 1 & Step 2 Grid -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+      <!-- Left Column: Key Registry & Ring Selector (7 cols) -->
+      <div class="lg:col-span-7 bg-[var(--card)] border border-[var(--border)] rounded-xl p-5 shadow-sm flex flex-col justify-between space-y-4">
+        <div>
+          <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+            <div>
+              <h2 class="text-base font-semibold">1. Global Key Registry ($\mathbb{L}$) & Ring Selection ($L$)</h2>
+              <p class="text-xs text-[var(--muted-foreground)]">
+                Click a key card to toggle inclusion in Ring $L$. Click <strong>"Set Signer"</strong> to choose who signs ($S_s$).
+              </p>
+            </div>
+            <div class="flex items-center gap-2">
+              <button id="btn-select-all" class="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-[var(--secondary)] text-[var(--secondary-foreground)] border border-[var(--border)] hover:opacity-80 transition">
+                Select All
+              </button>
+              <button id="btn-add-key" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-[var(--primary)] text-[var(--primary-foreground)] hover:opacity-90 transition">
+                + Generate KeyPair
+              </button>
+            </div>
+          </div>
+
+          <!-- Keys Grid -->
+          <div id="keys-grid" class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-80 overflow-y-auto pr-1"></div>
+        </div>
+
+        <!-- Ring Summary Footer -->
+        <div class="pt-3 border-t border-[var(--border)] flex flex-wrap items-center justify-between gap-2 text-xs">
+          <div>
+            <span class="text-[var(--muted-foreground)]">Selected Ring $L$:</span>
+            <span id="ring-summary-badges" class="ml-1 font-semibold"></span>
+          </div>
+          <div>
+            <span class="text-[var(--muted-foreground)]">Active Signer ($S_s$):</span>
+            <span id="signer-summary-badge" class="ml-1 font-semibold px-2 py-0.5 rounded bg-[var(--primary)] text-[var(--primary-foreground)]"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right Column: Sign Panel (5 cols) -->
+      <div class="lg:col-span-5 bg-[var(--card)] border border-[var(--border)] rounded-xl p-5 shadow-sm flex flex-col justify-between space-y-4">
+        <div class="space-y-4">
+          <div>
+            <h2 class="text-base font-semibold">2. Sign Message (`Algorithm 1: Sign`)</h2>
+            <p class="text-xs text-[var(--muted-foreground)]">
+              Generates $\sigma = (I_{\text{scope}}, L, \text{SID}, P_{\text{net}}, C_1, C_2, ch_1, \{x_i, z_i\}_{i=1}^n)$
+            </p>
+          </div>
+
+          <!-- Scope ID Selection -->
+          <div>
+            <label class="block text-xs font-medium mb-1.5">Scope Identifier (`SID`)</label>
+            <div class="grid grid-cols-3 gap-2 mb-2" id="sid-presets">
+              <button data-sid="SID_PROJECT_A" class="sid-btn px-2.5 py-1.5 rounded-lg text-xs font-mono border border-[var(--border)] bg-[var(--primary)] text-[var(--primary-foreground)] font-semibold truncate">
+                SID_PROJECT_A
+              </button>
+              <button data-sid="SID_PROJECT_B" class="sid-btn px-2.5 py-1.5 rounded-lg text-xs font-mono border border-[var(--border)] bg-[var(--secondary)] text-[var(--secondary-foreground)] truncate">
+                SID_PROJECT_B
+              </button>
+              <button data-sid="SID_TRIAL_2026" class="sid-btn px-2.5 py-1.5 rounded-lg text-xs font-mono border border-[var(--border)] bg-[var(--secondary)] text-[var(--secondary-foreground)] truncate">
+                SID_TRIAL_2026
+              </button>
+            </div>
+            <input id="input-sid" type="text" value="SID_PROJECT_A" class="w-full px-3 py-1.5 rounded-lg text-xs font-mono bg-[var(--background)] border border-[var(--border)] focus:outline-none" />
+          </div>
+
+          <!-- Message Input -->
+          <div>
+            <label class="block text-xs font-medium mb-1.5">Message / Consent Proof ($m$)</label>
+            <input id="input-message" type="text" value="Consent_proof_V1" class="w-full px-3 py-2 rounded-lg text-sm bg-[var(--background)] border border-[var(--border)] focus:outline-none" placeholder="Enter message or document hash..." />
+            <div class="flex gap-2 mt-2">
+              <button data-msg="Consent_proof_V1" class="msg-preset text-xs px-2 py-1 rounded bg-[var(--secondary)] text-[var(--secondary-foreground)] hover:opacity-80">Consent_proof_V1</button>
+              <button data-msg="Consent_proof_V2" class="msg-preset text-xs px-2 py-1 rounded bg-[var(--secondary)] text-[var(--secondary-foreground)] hover:opacity-80">Consent_proof_V2</button>
+              <button data-msg="REV" class="msg-preset text-xs px-2 py-1 rounded bg-[var(--secondary)] text-[var(--secondary-foreground)] hover:opacity-80">REV (Revoke)</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="space-y-2 pt-2">
+          <div id="sign-error" class="hidden text-xs p-2.5 rounded-lg border border-red-500/40 bg-red-500/10 text-red-400"></div>
+          <button id="btn-sign" class="w-full py-2.5 px-4 rounded-lg text-sm font-semibold bg-[var(--primary)] text-[var(--primary-foreground)] hover:opacity-90 transition shadow-sm">
+            Generate Ring Signature ($\sigma$)
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 3: Issued Signatures Ledger & Verify / Link / Trace Workspace -->
+    <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-5 shadow-sm space-y-4">
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h2 class="text-base font-semibold">3. Issued Signatures Ledger ($\sigma$)</h2>
+          <p class="text-xs text-[var(--muted-foreground)]">
+            Click <strong>Verify</strong> to test a signature, click <strong>Select for Link (A / B)</strong> on any two signatures to test scoped linkability, or click <strong>Inspect / Trace</strong> to deanonymize.
+          </p>
+        </div>
+        <span id="sig-count-badge" class="px-2.5 py-1 rounded-md text-xs font-medium bg-[var(--secondary)] text-[var(--secondary-foreground)]">0 Signatures</span>
+      </div>
+
+      <div id="signatures-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3"></div>
+    </div>
+
+    <!-- Step 4: Verify & Scoped Linkability Comparison + Threshold Deanonymization -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+      <!-- Verify & Linkability Panel (6 cols) -->
+      <div class="lg:col-span-6 bg-[var(--card)] border border-[var(--border)] rounded-xl p-5 shadow-sm space-y-5">
+        <!-- Verify Tester -->
+        <div class="space-y-3">
+          <div class="flex items-center justify-between">
+            <div>
+              <h2 class="text-base font-semibold">4. Verify Signature (`Algorithm 2: Verify`)</h2>
+              <p class="text-xs text-[var(--muted-foreground)]">Rebuilds ring challenges $ch'_1, \dots, ch'_n$ and checks $ch'_1 == ch_1$. Try editing the message to test tamper detection.</p>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <div>
+              <label class="block text-xs text-[var(--muted-foreground)] mb-1">Target Signature</label>
+              <select id="verify-sig-select" class="w-full px-2.5 py-1.5 rounded-lg text-xs bg-[var(--background)] border border-[var(--border)]"></select>
+            </div>
+            <div class="sm:col-span-2">
+              <label class="block text-xs text-[var(--muted-foreground)] mb-1">Message to Verify ($m'$)</label>
+              <div class="flex gap-2">
+                <input id="verify-msg-input" type="text" class="flex-1 px-2.5 py-1.5 rounded-lg text-xs bg-[var(--background)] border border-[var(--border)]" />
+                <button id="btn-run-verify" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-[var(--primary)] text-[var(--primary-foreground)] hover:opacity-90">
+                  Verify
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div id="verify-result-box" class="p-3 rounded-lg border border-[var(--border)] bg-[var(--background)] text-xs">
+            Select or generate a signature to run verification.
+          </div>
+        </div>
+
+        <hr class="border-[var(--border)]" />
+
+        <!-- Link Tester -->
+        <div class="space-y-3">
+          <div>
+            <h2 class="text-base font-semibold">5. Scoped Linkability (`Algorithm 3: Link`)</h2>
+            <p class="text-xs text-[var(--muted-foreground)]">
+              Verifies both signatures and compares key images $I_{\text{scope}}^{\sigma_1} == I_{\text{scope}}^{\sigma_2}$ within the same scope $\text{SID}$.
+            </p>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs text-[var(--muted-foreground)] mb-1">Signature 1 ($\sigma_1$)</label>
+              <select id="link-sig1-select" class="w-full px-2.5 py-1.5 rounded-lg text-xs bg-[var(--background)] border border-[var(--border)]"></select>
+            </div>
+            <div>
+              <label class="block text-xs text-[var(--muted-foreground)] mb-1">Signature 2 ($\sigma_2$)</label>
+              <select id="link-sig2-select" class="w-full px-2.5 py-1.5 rounded-lg text-xs bg-[var(--background)] border border-[var(--border)]"></select>
+            </div>
+          </div>
+
+          <button id="btn-run-link" class="w-full py-2 px-3 rounded-lg text-xs font-semibold bg-[var(--primary)] text-[var(--primary-foreground)] hover:opacity-90 transition">
+            Compare & Link Signatures ($\sigma_1, \sigma_2$)
+          </button>
+
+          <div id="link-result-box" class="p-3 rounded-lg border border-[var(--border)] bg-[var(--background)] text-xs space-y-1.5">
+            Select two signatures and click Compare & Link.
+          </div>
+        </div>
+      </div>
+
+      <!-- Threshold Deanonymization with DLEQ Proofs (6 cols) -->
+      <div class="lg:col-span-6 bg-[var(--card)] border border-[var(--border)] rounded-xl p-5 shadow-sm flex flex-col justify-between space-y-4">
+        <div class="space-y-3">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 class="text-base font-semibold">6. Threshold Deanonymize (`Algorithm 4: DLEQ + Lagrange`)</h2>
+              <p class="text-xs text-[var(--muted-foreground)]">
+                Select at least $k = 5$ of $N = 8$ opener nodes to submit $(D_j, c_j, y_j)$. Toggle <strong>"Corrupt $D_j$"</strong> on any node to test Chaum–Pedersen DLEQ malicious share rejection!
+              </p>
+            </div>
+          </div>
+
+          <div class="flex items-center justify-between gap-2">
+            <div class="flex items-center gap-2 text-xs">
+              <span class="text-[var(--muted-foreground)]">Target Signature:</span>
+              <select id="trace-sig-select" class="px-2.5 py-1 rounded-lg text-xs bg-[var(--background)] border border-[var(--border)]"></select>
+            </div>
+            <span id="selected-nodes-count" class="text-xs font-semibold px-2.5 py-1 rounded bg-[var(--secondary)] text-[var(--secondary-foreground)]">
+              5 / 5 Nodes Selected
+            </span>
+          </div>
+
+          <!-- Authority Nodes Grid -->
+          <div id="nodes-grid" class="grid grid-cols-2 sm:grid-cols-4 gap-2"></div>
+        </div>
+
+        <div class="space-y-3 pt-2">
+          <button id="btn-run-trace" class="w-full py-2.5 px-4 rounded-lg text-xs font-semibold bg-[var(--primary)] text-[var(--primary-foreground)] hover:opacity-90 transition">
+            Execute Threshold Deanonymize (`Algorithm 4`)
+          </button>
+
+          <div id="trace-result-box" class="p-3 rounded-lg border border-[var(--border)] bg-[var(--background)] text-xs space-y-1.5">
+            Click "Execute Threshold Deanonymize" to verify DLEQ shares and recover $P_s$.
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Embedded Compiled DSLRS TypeScript Bundle -->
+  <script>
+"use strict";var DSLRSBundle=(()=>{var Be=Object.defineProperty;var qn=Object.getOwnPropertyDescriptor;var Tn=Object.getOwnPropertyNames;var Ln=Object.prototype.hasOwnProperty;var On=(e,t)=>{for(var r in t)Be(e,r,{get:t[r],enumerable:!0})},Un=(e,t,r,n)=>{if(t&&typeof t=="object"||typeof t=="function")for(let i of Tn(t))!Ln.call(e,i)&&i!==r&&Be(e,i,{get:()=>t[i],enumerable:!(n=qn(t,i))||n.enumerable});return e};var Pn=e=>Un(Be({},"__esModule",{value:!0}),e);var fr={};On(fr,{CURVE_A:()=>Jt,CURVE_B:()=>Qt,DSLRS:()=>xe,FIELD_PRIME:()=>Wt,GENERATOR:()=>dt,INFINITY:()=>mt,KeyPair:()=>Rt,ORDER:()=>rt,RingSignature:()=>kt,SystemParameters:()=>Ct,createDleqShare:()=>we,deanonymize:()=>Hn,generateShares:()=>ze,getSignatureSizeBytes:()=>Ee,hashFunc:()=>wt,hashToPoint:()=>Dt,isECPoint:()=>Ft,isValidPoint:()=>It,keygen:()=>pe,link:()=>Xe,mod:()=>M,modInv:()=>Ze,modPow:()=>Nt,pointToStr:()=>me,randomScalar:()=>it,scalarMul:()=>v,sign:()=>Ye,subPoints:()=>J,trace:()=>$t,verify:()=>At,verifyDleqShare:()=>Xt});var Et=typeof globalThis=="object"&&"crypto"in globalThis?globalThis.crypto:void 0;function ht(e){return e instanceof Uint8Array||ArrayBuffer.isView(e)&&e.constructor.name==="Uint8Array"}function Ht(e){if(!Number.isSafeInteger(e)||e<0)throw new Error("positive integer expected, got "+e)}function tt(e,...t){if(!ht(e))throw new Error("Uint8Array expected");if(t.length>0&&!t.includes(e.length))throw new Error("Uint8Array expected of length "+t+", got length="+e.length)}function ee(e){if(typeof e!="function"||typeof e.create!="function")throw new Error("Hash should be wrapped by utils.createHasher");Ht(e.outputLen),Ht(e.blockLen)}function Tt(e,t=!0){if(e.destroyed)throw new Error("Hash instance has been destroyed");if(t&&e.finished)throw new Error("Hash#digest() has already been called")}function Qe(e,t){tt(e);let r=t.outputLen;if(e.length<r)throw new Error("digestInto() expects output buffer of length at least "+r)}function Bt(...e){for(let t=0;t<e.length;t++)e[t].fill(0)}function ne(e){return new DataView(e.buffer,e.byteOffset,e.byteLength)}function ot(e,t){return e<<32-t|e>>>t}var Fe=typeof Uint8Array.from([]).toHex=="function"&&typeof Uint8Array.fromHex=="function",Nn=Array.from({length:256},(e,t)=>t.toString(16).padStart(2,"0"));function st(e){if(tt(e),Fe)return e.toHex();let t="";for(let r=0;r<e.length;r++)t+=Nn[e[r]];return t}var ct={_0:48,_9:57,A:65,F:70,a:97,f:102};function Je(e){if(e>=ct._0&&e<=ct._9)return e-ct._0;if(e>=ct.A&&e<=ct.F)return e-(ct.A-10);if(e>=ct.a&&e<=ct.f)return e-(ct.a-10)}function bt(e){if(typeof e!="string")throw new Error("hex string expected, got "+typeof e);if(Fe)return Uint8Array.fromHex(e);let t=e.length,r=t/2;if(t%2)throw new Error("hex string expected, got unpadded hex of length "+t);let n=new Uint8Array(r);for(let i=0,o=0;i<r;i++,o+=2){let s=Je(e.charCodeAt(o)),c=Je(e.charCodeAt(o+1));if(s===void 0||c===void 0){let a=e[o]+e[o+1];throw new Error('hex string expected, got non-hex character "'+a+'" at index '+o)}n[i]=s*16+c}return n}function _e(e){if(typeof e!="string")throw new Error("string expected");return new Uint8Array(new TextEncoder().encode(e))}function jt(e){return typeof e=="string"&&(e=_e(e)),tt(e),e}function et(...e){let t=0;for(let n=0;n<e.length;n++){let i=e[n];tt(i),t+=i.length}let r=new Uint8Array(t);for(let n=0,i=0;n<e.length;n++){let o=e[n];r.set(o,i),i+=o.length}return r}var qt=class{};function tn(e){let t=n=>e().update(jt(n)).digest(),r=e();return t.outputLen=r.outputLen,t.blockLen=r.blockLen,t.create=()=>e(),t}function Vt(e=32){if(Et&&typeof Et.getRandomValues=="function")return Et.getRandomValues(new Uint8Array(e));if(Et&&typeof Et.randomBytes=="function")return Uint8Array.from(Et.randomBytes(e));throw new Error("crypto.getRandomValues must be defined")}function Dn(e,t,r,n){if(typeof e.setBigUint64=="function")return e.setBigUint64(t,r,n);let i=BigInt(32),o=BigInt(4294967295),s=Number(r>>i&o),c=Number(r&o),a=n?4:0,d=n?0:4;e.setUint32(t+a,s,n),e.setUint32(t+d,c,n)}function en(e,t,r){return e&t^~e&r}function nn(e,t,r){return e&t^e&r^t&r}var re=class extends qt{constructor(t,r,n,i){super(),this.finished=!1,this.length=0,this.pos=0,this.destroyed=!1,this.blockLen=t,this.outputLen=r,this.padOffset=n,this.isLE=i,this.buffer=new Uint8Array(t),this.view=ne(this.buffer)}update(t){Tt(this),t=jt(t),tt(t);let{view:r,buffer:n,blockLen:i}=this,o=t.length;for(let s=0;s<o;){let c=Math.min(i-this.pos,o-s);if(c===i){let a=ne(t);for(;i<=o-s;s+=i)this.process(a,s);continue}n.set(t.subarray(s,s+c),this.pos),this.pos+=c,s+=c,this.pos===i&&(this.process(r,0),this.pos=0)}return this.length+=t.length,this.roundClean(),this}digestInto(t){Tt(this),Qe(t,this),this.finished=!0;let{buffer:r,view:n,blockLen:i,isLE:o}=this,{pos:s}=this;r[s++]=128,Bt(this.buffer.subarray(s)),this.padOffset>i-s&&(this.process(n,0),s=0);for(let b=s;b<i;b++)r[b]=0;Dn(n,i-8,BigInt(this.length*8),o),this.process(n,0);let c=ne(t),a=this.outputLen;if(a%4)throw new Error("_sha2: outputLen should be aligned to 32bit");let d=a/4,y=this.get();if(d>y.length)throw new Error("_sha2: outputLen bigger than state");for(let b=0;b<d;b++)c.setUint32(4*b,y[b],o)}digest(){let{buffer:t,outputLen:r}=this;this.digestInto(t);let n=t.slice(0,r);return this.destroy(),n}_cloneInto(t){t||(t=new this.constructor),t.set(...this.get());let{blockLen:r,buffer:n,length:i,finished:o,destroyed:s,pos:c}=this;return t.destroyed=s,t.finished=o,t.length=i,t.pos=c,i%r&&t.buffer.set(n),t}clone(){return this._cloneInto()}},at=Uint32Array.from([1779033703,3144134277,1013904242,2773480762,1359893119,2600822924,528734635,1541459225]);var kn=Uint32Array.from([1116352408,1899447441,3049323471,3921009573,961987163,1508970993,2453635748,2870763221,3624381080,310598401,607225278,1426881987,1925078388,2162078206,2614888103,3248222580,3835390401,4022224774,264347078,604807628,770255983,1249150122,1555081692,1996064986,2554220882,2821834349,2952996808,3210313671,3336571891,3584528711,113926993,338241895,666307205,773529912,1294757372,1396182291,1695183700,1986661051,2177026350,2456956037,2730485921,2820302411,3259730800,3345764771,3516065817,3600352804,4094571909,275423344,430227734,506948616,659060556,883997877,958139571,1322822218,1537002063,1747873779,1955562222,2024104815,2227730452,2361852424,2428436474,2756734187,3204031479,3329325298]),gt=new Uint32Array(64),oe=class extends re{constructor(t=32){super(64,t,8,!1),this.A=at[0]|0,this.B=at[1]|0,this.C=at[2]|0,this.D=at[3]|0,this.E=at[4]|0,this.F=at[5]|0,this.G=at[6]|0,this.H=at[7]|0}get(){let{A:t,B:r,C:n,D:i,E:o,F:s,G:c,H:a}=this;return[t,r,n,i,o,s,c,a]}set(t,r,n,i,o,s,c,a){this.A=t|0,this.B=r|0,this.C=n|0,this.D=i|0,this.E=o|0,this.F=s|0,this.G=c|0,this.H=a|0}process(t,r){for(let b=0;b<16;b++,r+=4)gt[b]=t.getUint32(r,!1);for(let b=16;b<64;b++){let u=gt[b-15],f=gt[b-2],x=ot(u,7)^ot(u,18)^u>>>3,m=ot(f,17)^ot(f,19)^f>>>10;gt[b]=m+gt[b-7]+x+gt[b-16]|0}let{A:n,B:i,C:o,D:s,E:c,F:a,G:d,H:y}=this;for(let b=0;b<64;b++){let u=ot(c,6)^ot(c,11)^ot(c,25),f=y+u+en(c,a,d)+kn[b]+gt[b]|0,m=(ot(n,2)^ot(n,13)^ot(n,22))+nn(n,i,o)|0;y=d,d=a,a=c,c=s+f|0,s=o,o=i,i=n,n=f+m|0}n=n+this.A|0,i=i+this.B|0,o=o+this.C|0,s=s+this.D|0,c=c+this.E|0,a=a+this.F|0,d=d+this.G|0,y=y+this.H|0,this.set(n,i,o,s,c,a,d,y)}roundClean(){Bt(gt)}destroy(){this.set(0,0,0,0,0,0,0,0),Bt(this.buffer)}};var ie=tn(()=>new oe);var se=class extends qt{constructor(t,r){super(),this.finished=!1,this.destroyed=!1,ee(t);let n=jt(r);if(this.iHash=t.create(),typeof this.iHash.update!="function")throw new Error("Expected instance of class which extends utils.Hash");this.blockLen=this.iHash.blockLen,this.outputLen=this.iHash.outputLen;let i=this.blockLen,o=new Uint8Array(i);o.set(n.length>i?t.create().update(n).digest():n);for(let s=0;s<o.length;s++)o[s]^=54;this.iHash.update(o),this.oHash=t.create();for(let s=0;s<o.length;s++)o[s]^=106;this.oHash.update(o),Bt(o)}update(t){return Tt(this),this.iHash.update(t),this}digestInto(t){Tt(this),tt(t,this.outputLen),this.finished=!0,this.iHash.digestInto(t),this.oHash.update(t),this.oHash.digestInto(t),this.destroy()}digest(){let t=new Uint8Array(this.oHash.outputLen);return this.digestInto(t),t}_cloneInto(t){t||(t=Object.create(Object.getPrototypeOf(this),{}));let{oHash:r,iHash:n,finished:i,destroyed:o,blockLen:s,outputLen:c}=this;return t=t,t.finished=i,t.destroyed=o,t.blockLen=s,t.outputLen=c,t.oHash=r._cloneInto(t.oHash),t.iHash=n._cloneInto(t.iHash),t}clone(){return this._cloneInto()}destroy(){this.destroyed=!0,this.oHash.destroy(),this.iHash.destroy()}},Se=(e,t,r)=>new se(e,t).update(r).digest();Se.create=(e,t)=>new se(e,t);var Ie=BigInt(0),Ae=BigInt(1);function Kt(e,t=""){if(typeof e!="boolean"){let r=t&&`"${t}"`;throw new Error(r+"expected boolean, got type="+typeof e)}return e}function yt(e,t,r=""){let n=ht(e),i=e?.length,o=t!==void 0;if(!n||o&&i!==t){let s=r&&`"${r}" `,c=o?` of length ${t}`:"",a=n?`length=${i}`:`type=${typeof e}`;throw new Error(s+"expected Uint8Array"+c+", got "+a)}return e}function Lt(e){let t=e.toString(16);return t.length&1?"0"+t:t}function Re(e){if(typeof e!="string")throw new Error("hex string expected, got "+typeof e);return e===""?Ie:BigInt("0x"+e)}function pt(e){return Re(st(e))}function ce(e){return tt(e),Re(st(Uint8Array.from(e).reverse()))}function Gt(e,t){return bt(e.toString(16).padStart(t*2,"0"))}function ae(e,t){return Gt(e,t).reverse()}function G(e,t,r){let n;if(typeof t=="string")try{n=bt(t)}catch(o){throw new Error(e+" must be hex string or Uint8Array, cause: "+o)}else if(ht(t))n=Uint8Array.from(t);else throw new Error(e+" must be hex string or Uint8Array");let i=n.length;if(typeof r=="number"&&i!==r)throw new Error(e+" of length "+r+" expected, got "+i);return n}var ve=e=>typeof e=="bigint"&&Ie<=e;function Ce(e,t,r){return ve(e)&&ve(t)&&ve(r)&&t<=e&&e<r}function He(e,t,r,n){if(!Ce(t,r,n))throw new Error("expected valid "+e+": "+r+" <= n < "+n+", got "+t)}function Mt(e){let t;for(t=0;e>Ie;e>>=Ae,t+=1);return t}var ft=e=>(Ae<<BigInt(e))-Ae;function qe(e,t,r){if(typeof e!="number"||e<2)throw new Error("hashLen must be a number");if(typeof t!="number"||t<2)throw new Error("qByteLen must be a number");if(typeof r!="function")throw new Error("hmacFn must be a function");let n=f=>new Uint8Array(f),i=f=>Uint8Array.of(f),o=n(e),s=n(e),c=0,a=()=>{o.fill(1),s.fill(0),c=0},d=(...f)=>r(s,o,...f),y=(f=n(0))=>{s=d(i(0),f),o=d(),f.length!==0&&(s=d(i(1),f),o=d())},b=()=>{if(c++>=1e3)throw new Error("drbg: tried 1000 values");let f=0,x=[];for(;f<t;){o=d();let m=o.slice();x.push(m),f+=o.length}return et(...x)};return(f,x)=>{a(),y(f);let m;for(;!(m=x(b()));)y();return a(),m}}function Zt(e,t,r={}){if(!e||typeof e!="object")throw new Error("expected valid options object");function n(i,o,s){let c=e[i];if(s&&c===void 0)return;let a=typeof c;if(a!==o||c===null)throw new Error(`param "${i}" is invalid: expected ${o}, got ${a}`)}Object.entries(t).forEach(([i,o])=>n(i,o,!1)),Object.entries(r).forEach(([i,o])=>n(i,o,!0))}function fe(e){let t=new WeakMap;return(r,...n)=>{let i=t.get(r);if(i!==void 0)return i;let o=e(r,...n);return t.set(r,o),o}}var X=BigInt(0),z=BigInt(1),_t=BigInt(2),sn=BigInt(3),cn=BigInt(4),an=BigInt(5),Kn=BigInt(7),fn=BigInt(8),Gn=BigInt(9),un=BigInt(16);function nt(e,t){let r=e%t;return r>=X?r:t+r}function Q(e,t,r){let n=e;for(;t-- >X;)n*=n,n%=r;return n}function rn(e,t){if(e===X)throw new Error("invert: expected non-zero number");if(t<=X)throw new Error("invert: expected positive modulus, got "+t);let r=nt(e,t),n=t,i=X,o=z,s=z,c=X;for(;r!==X;){let d=n/r,y=n%r,b=i-s*d,u=o-c*d;n=r,r=y,i=s,o=c,s=b,c=u}if(n!==z)throw new Error("invert: does not exist");return nt(i,t)}function Te(e,t,r){if(!e.eql(e.sqr(t),r))throw new Error("Cannot find square root")}function ln(e,t){let r=(e.ORDER+z)/cn,n=e.pow(t,r);return Te(e,n,t),n}function Mn(e,t){let r=(e.ORDER-an)/fn,n=e.mul(t,_t),i=e.pow(n,r),o=e.mul(t,i),s=e.mul(e.mul(o,_t),i),c=e.mul(o,e.sub(s,e.ONE));return Te(e,c,t),c}function Zn(e){let t=xt(e),r=dn(e),n=r(t,t.neg(t.ONE)),i=r(t,n),o=r(t,t.neg(n)),s=(e+Kn)/un;return(c,a)=>{let d=c.pow(a,s),y=c.mul(d,n),b=c.mul(d,i),u=c.mul(d,o),f=c.eql(c.sqr(y),a),x=c.eql(c.sqr(b),a);d=c.cmov(d,y,f),y=c.cmov(u,b,x);let m=c.eql(c.sqr(y),a),E=c.cmov(d,y,m);return Te(c,E,a),E}}function dn(e){if(e<sn)throw new Error("sqrt is not defined for small field");let t=e-z,r=0;for(;t%_t===X;)t/=_t,r++;let n=_t,i=xt(e);for(;on(i,n)===1;)if(n++>1e3)throw new Error("Cannot find square root: probably non-prime P");if(r===1)return ln;let o=i.pow(n,t),s=(t+z)/_t;return function(a,d){if(a.is0(d))return d;if(on(a,d)!==1)throw new Error("Cannot find square root");let y=r,b=a.mul(a.ONE,o),u=a.pow(d,t),f=a.pow(d,s);for(;!a.eql(u,a.ONE);){if(a.is0(u))return a.ZERO;let x=1,m=a.sqr(u);for(;!a.eql(m,a.ONE);)if(x++,m=a.sqr(m),x===y)throw new Error("Cannot find square root");let E=z<<BigInt(y-x-1),A=a.pow(b,E);y=x,b=a.sqr(A),u=a.mul(u,b),f=a.mul(f,A)}return f}}function zn(e){return e%cn===sn?ln:e%fn===an?Mn:e%un===Gn?Zn(e):dn(e)}var Yn=["create","isValid","is0","neg","inv","sqrt","sqr","eql","add","sub","mul","pow","div","addN","subN","mulN","sqrN"];function Le(e){let t={ORDER:"bigint",MASK:"bigint",BYTES:"number",BITS:"number"},r=Yn.reduce((n,i)=>(n[i]="function",n),t);return Zt(e,r),e}function Xn(e,t,r){if(r<X)throw new Error("invalid exponent, negatives unsupported");if(r===X)return e.ONE;if(r===z)return t;let n=e.ONE,i=t;for(;r>X;)r&z&&(n=e.mul(n,i)),i=e.sqr(i),r>>=z;return n}function ue(e,t,r=!1){let n=new Array(t.length).fill(r?e.ZERO:void 0),i=t.reduce((s,c,a)=>e.is0(c)?s:(n[a]=s,e.mul(s,c)),e.ONE),o=e.inv(i);return t.reduceRight((s,c,a)=>e.is0(c)?s:(n[a]=e.mul(s,n[a]),e.mul(s,c)),o),n}function on(e,t){let r=(e.ORDER-z)/_t,n=e.pow(t,r),i=e.eql(n,e.ONE),o=e.eql(n,e.ZERO),s=e.eql(n,e.neg(e.ONE));if(!i&&!o&&!s)throw new Error("invalid Legendre symbol result");return i?1:o?0:-1}function le(e,t){t!==void 0&&Ht(t);let r=t!==void 0?t:e.toString(2).length,n=Math.ceil(r/8);return{nBitLength:r,nByteLength:n}}function xt(e,t,r=!1,n={}){if(e<=X)throw new Error("invalid field: expected ORDER > 0, got "+e);let i,o,s=!1,c;if(typeof t=="object"&&t!=null){if(n.sqrt||r)throw new Error("cannot specify opts in two arguments");let u=t;u.BITS&&(i=u.BITS),u.sqrt&&(o=u.sqrt),typeof u.isLE=="boolean"&&(r=u.isLE),typeof u.modFromBytes=="boolean"&&(s=u.modFromBytes),c=u.allowedLengths}else typeof t=="number"&&(i=t),n.sqrt&&(o=n.sqrt);let{nBitLength:a,nByteLength:d}=le(e,i);if(d>2048)throw new Error("invalid field: expected ORDER of <= 2048 bytes");let y,b=Object.freeze({ORDER:e,isLE:r,BITS:a,BYTES:d,MASK:ft(a),ZERO:X,ONE:z,allowedLengths:c,create:u=>nt(u,e),isValid:u=>{if(typeof u!="bigint")throw new Error("invalid field element: expected bigint, got "+typeof u);return X<=u&&u<e},is0:u=>u===X,isValidNot0:u=>!b.is0(u)&&b.isValid(u),isOdd:u=>(u&z)===z,neg:u=>nt(-u,e),eql:(u,f)=>u===f,sqr:u=>nt(u*u,e),add:(u,f)=>nt(u+f,e),sub:(u,f)=>nt(u-f,e),mul:(u,f)=>nt(u*f,e),pow:(u,f)=>Xn(b,u,f),div:(u,f)=>nt(u*rn(f,e),e),sqrN:u=>u*u,addN:(u,f)=>u+f,subN:(u,f)=>u-f,mulN:(u,f)=>u*f,inv:u=>rn(u,e),sqrt:o||(u=>(y||(y=zn(e)),y(b,u))),toBytes:u=>r?ae(u,d):Gt(u,d),fromBytes:(u,f=!0)=>{if(c){if(!c.includes(u.length)||u.length>d)throw new Error("Field.fromBytes: expected "+c+" bytes, got "+u.length);let m=new Uint8Array(d);m.set(u,r?0:m.length-u.length),u=m}if(u.length!==d)throw new Error("Field.fromBytes: expected "+d+" bytes, got "+u.length);let x=r?ce(u):pt(u);if(s&&(x=nt(x,e)),!f&&!b.isValid(x))throw new Error("invalid field element: outside of range 0..ORDER");return x},invertBatch:u=>ue(b,u),cmov:(u,f,x)=>x?f:u});return Object.freeze(b)}function hn(e){if(typeof e!="bigint")throw new Error("field order must be bigint");let t=e.toString(2).length;return Math.ceil(t/8)}function Oe(e){let t=hn(e);return t+Math.ceil(t/2)}function Ue(e,t,r=!1){let n=e.length,i=hn(t),o=Oe(t);if(n<16||n<o||n>1024)throw new Error("expected "+o+"-1024 bytes of input, got "+n);let s=r?ce(e):pt(e),c=nt(s,t-z)+z;return r?ae(c,i):Gt(c,i)}var Ot=BigInt(0),St=BigInt(1);function zt(e,t){let r=t.negate();return e?r:t}function he(e,t){let r=ue(e.Fp,t.map(n=>n.Z));return t.map((n,i)=>e.fromAffine(n.toAffine(r[i])))}function pn(e,t){if(!Number.isSafeInteger(e)||e<=0||e>t)throw new Error("invalid window size, expected [1.."+t+"], got W="+e)}function Pe(e,t){pn(e,t);let r=Math.ceil(t/e)+1,n=2**(e-1),i=2**e,o=ft(e),s=BigInt(e);return{windows:r,windowSize:n,mask:o,maxNumber:i,shiftBy:s}}function bn(e,t,r){let{windowSize:n,mask:i,maxNumber:o,shiftBy:s}=r,c=Number(e&i),a=e>>s;c>n&&(c-=o,a+=St);let d=t*n,y=d+Math.abs(c)-1,b=c===0,u=c<0,f=t%2!==0;return{nextN:a,offset:y,isZero:b,isNeg:u,isNegF:f,offsetF:d}}function Wn(e,t){if(!Array.isArray(e))throw new Error("array expected");e.forEach((r,n)=>{if(!(r instanceof t))throw new Error("invalid point at index "+n)})}function Jn(e,t){if(!Array.isArray(e))throw new Error("array of scalars expected");e.forEach((r,n)=>{if(!t.isValid(r))throw new Error("invalid scalar at index "+n)})}var Ne=new WeakMap,xn=new WeakMap;function De(e){return xn.get(e)||1}function gn(e){if(e!==Ot)throw new Error("invalid wNAF")}var de=class{constructor(t,r){this.BASE=t.BASE,this.ZERO=t.ZERO,this.Fn=t.Fn,this.bits=r}_unsafeLadder(t,r,n=this.ZERO){let i=t;for(;r>Ot;)r&St&&(n=n.add(i)),i=i.double(),r>>=St;return n}precomputeWindow(t,r){let{windows:n,windowSize:i}=Pe(r,this.bits),o=[],s=t,c=s;for(let a=0;a<n;a++){c=s,o.push(c);for(let d=1;d<i;d++)c=c.add(s),o.push(c);s=c.double()}return o}wNAF(t,r,n){if(!this.Fn.isValid(n))throw new Error("invalid scalar");let i=this.ZERO,o=this.BASE,s=Pe(t,this.bits);for(let c=0;c<s.windows;c++){let{nextN:a,offset:d,isZero:y,isNeg:b,isNegF:u,offsetF:f}=bn(n,c,s);n=a,y?o=o.add(zt(u,r[f])):i=i.add(zt(b,r[d]))}return gn(n),{p:i,f:o}}wNAFUnsafe(t,r,n,i=this.ZERO){let o=Pe(t,this.bits);for(let s=0;s<o.windows&&n!==Ot;s++){let{nextN:c,offset:a,isZero:d,isNeg:y}=bn(n,s,o);if(n=c,!d){let b=r[a];i=i.add(y?b.negate():b)}}return gn(n),i}getPrecomputes(t,r,n){let i=Ne.get(r);return i||(i=this.precomputeWindow(r,t),t!==1&&(typeof n=="function"&&(i=n(i)),Ne.set(r,i))),i}cached(t,r,n){let i=De(t);return this.wNAF(i,this.getPrecomputes(i,t,n),r)}unsafe(t,r,n,i){let o=De(t);return o===1?this._unsafeLadder(t,r,i):this.wNAFUnsafe(o,this.getPrecomputes(o,t,n),r,i)}createCache(t,r){pn(r,this.bits),xn.set(t,r),Ne.delete(t)}hasCache(t){return De(t)!==1}};function mn(e,t,r,n){let i=t,o=e.ZERO,s=e.ZERO;for(;r>Ot||n>Ot;)r&St&&(o=o.add(i)),n&St&&(s=s.add(i)),i=i.double(),r>>=St,n>>=St;return{p1:o,p2:s}}function wn(e,t,r,n){Wn(r,e),Jn(n,t);let i=r.length,o=n.length;if(i!==o)throw new Error("arrays of points and scalars must have equal length");let s=e.ZERO,c=Mt(BigInt(i)),a=1;c>12?a=c-3:c>4?a=c-2:c>0&&(a=2);let d=ft(a),y=new Array(Number(d)+1).fill(s),b=Math.floor((t.BITS-1)/a)*a,u=s;for(let f=b;f>=0;f-=a){y.fill(s);for(let m=0;m<o;m++){let E=n[m],A=Number(E>>BigInt(f)&d);y[A]=y[A].add(r[m])}let x=s;for(let m=y.length-1,E=s;m>0;m--)E=E.add(y[m]),x=x.add(E);if(u=u.add(x),f!==0)for(let m=0;m<a;m++)u=u.double()}return u}function yn(e,t,r){if(t){if(t.ORDER!==e)throw new Error("Field.ORDER must match order: Fp == p, Fn == n");return Le(t),t}else return xt(e,{isLE:r})}function En(e,t,r={},n){if(n===void 0&&(n=e==="edwards"),!t||typeof t!="object")throw new Error(`expected valid ${e} CURVE object`);for(let a of["p","n","h"]){let d=t[a];if(!(typeof d=="bigint"&&d>Ot))throw new Error(`CURVE.${a} must be positive bigint`)}let i=yn(t.p,r.Fp,n),o=yn(t.n,r.Fn,n),c=["Gx","Gy","a",e==="weierstrass"?"b":"d"];for(let a of c)if(!i.isValid(t[a]))throw new Error(`CURVE.${a} must be valid field element of CURVE.Fp`);return t=Object.freeze(Object.assign({},t)),{CURVE:t,Fp:i,Fn:o}}var Bn=(e,t)=>(e+(e>=0?t:-t)/_n)/t;function Qn(e,t,r){let[[n,i],[o,s]]=t,c=Bn(s*e,r),a=Bn(-i*e,r),d=e-c*n-a*o,y=-c*i-a*s,b=d<lt,u=y<lt;b&&(d=-d),u&&(y=-y);let f=ft(Math.ceil(Mt(r)/2))+Pt;if(d<lt||d>=f||y<lt||y>=f)throw new Error("splitScalar (endomorphism): failed, k="+e);return{k1neg:b,k1:d,k2neg:u,k2:y}}function je(e){if(!["compact","recovered","der"].includes(e))throw new Error('Signature format must be "compact", "recovered", or "der"');return e}function ke(e,t){let r={};for(let n of Object.keys(t))r[n]=e[n]===void 0?t[n]:e[n];return Kt(r.lowS,"lowS"),Kt(r.prehash,"prehash"),r.format!==void 0&&je(r.format),r}var Ve=class extends Error{constructor(t=""){super(t)}},ut={Err:Ve,_tlv:{encode:(e,t)=>{let{Err:r}=ut;if(e<0||e>256)throw new r("tlv.encode: wrong tag");if(t.length&1)throw new r("tlv.encode: unpadded data");let n=t.length/2,i=Lt(n);if(i.length/2&128)throw new r("tlv.encode: long form length too big");let o=n>127?Lt(i.length/2|128):"";return Lt(e)+o+i+t},decode(e,t){let{Err:r}=ut,n=0;if(e<0||e>256)throw new r("tlv.encode: wrong tag");if(t.length<2||t[n++]!==e)throw new r("tlv.decode: wrong tlv");let i=t[n++],o=!!(i&128),s=0;if(!o)s=i;else{let a=i&127;if(!a)throw new r("tlv.decode(long): indefinite length not supported");if(a>4)throw new r("tlv.decode(long): byte length is too big");let d=t.subarray(n,n+a);if(d.length!==a)throw new r("tlv.decode: length bytes not complete");if(d[0]===0)throw new r("tlv.decode(long): zero leftmost byte");for(let y of d)s=s<<8|y;if(n+=a,s<128)throw new r("tlv.decode(long): not minimal encoding")}let c=t.subarray(n,n+s);if(c.length!==s)throw new r("tlv.decode: wrong value length");return{v:c,l:t.subarray(n+s)}}},_int:{encode(e){let{Err:t}=ut;if(e<lt)throw new t("integer: negative integers are not allowed");let r=Lt(e);if(Number.parseInt(r[0],16)&8&&(r="00"+r),r.length&1)throw new t("unexpected DER parsing assertion: unpadded hex");return r},decode(e){let{Err:t}=ut;if(e[0]&128)throw new t("invalid signature integer: negative");if(e[0]===0&&!(e[1]&128))throw new t("invalid signature integer: unnecessary leading zero");return pt(e)}},toSig(e){let{Err:t,_int:r,_tlv:n}=ut,i=G("signature",e),{v:o,l:s}=n.decode(48,i);if(s.length)throw new t("invalid signature: left bytes after parsing");let{v:c,l:a}=n.decode(2,o),{v:d,l:y}=n.decode(2,a);if(y.length)throw new t("invalid signature: left bytes after parsing");return{r:r.decode(c),s:r.decode(d)}},hexFromSig(e){let{_tlv:t,_int:r}=ut,n=t.encode(2,r.encode(e.r)),i=t.encode(2,r.encode(e.s)),o=n+i;return t.encode(48,o)}},lt=BigInt(0),Pt=BigInt(1),_n=BigInt(2),be=BigInt(3),Fn=BigInt(4);function Ut(e,t){let{BYTES:r}=e,n;if(typeof t=="bigint")n=t;else{let i=G("private key",t);try{n=e.fromBytes(i)}catch{throw new Error(`invalid private key: expected ui8a of size ${r}, got ${typeof t}`)}}if(!e.isValidNot0(n))throw new Error("invalid private key: out of range [1..N-1]");return n}function tr(e,t={}){let r=En("weierstrass",e,t),{Fp:n,Fn:i}=r,o=r.CURVE,{h:s,n:c}=o;Zt(t,{},{allowInfinityPoint:"boolean",clearCofactor:"function",isTorsionFree:"function",fromBytes:"function",toBytes:"function",endo:"object",wrapPrivateKey:"boolean"});let{endo:a}=t;if(a&&(!n.is0(o.a)||typeof a.beta!="bigint"||!Array.isArray(a.basises)))throw new Error('invalid endo: expected "beta": bigint and "basises": array');let d=vn(n,i);function y(){if(!n.isOdd)throw new Error("compression is not supported: Field does not have .isOdd()")}function b(T,g,h){let{x:l,y:p}=g.toAffine(),w=n.toBytes(l);if(Kt(h,"isCompressed"),h){y();let S=!n.isOdd(p);return et(Sn(S),w)}else return et(Uint8Array.of(4),w,n.toBytes(p))}function u(T){yt(T,void 0,"Point");let{publicKey:g,publicKeyUncompressed:h}=d,l=T.length,p=T[0],w=T.subarray(1);if(l===g&&(p===2||p===3)){let S=n.fromBytes(w);if(!n.isValid(S))throw new Error("bad point: is not on curve, wrong x");let _=m(S),B;try{B=n.sqrt(_)}catch(j){let U=j instanceof Error?": "+j.message:"";throw new Error("bad point: is not on curve, sqrt error"+U)}y();let I=n.isOdd(B);return(p&1)===1!==I&&(B=n.neg(B)),{x:S,y:B}}else if(l===h&&p===4){let S=n.BYTES,_=n.fromBytes(w.subarray(0,S)),B=n.fromBytes(w.subarray(S,S*2));if(!E(_,B))throw new Error("bad point: is not on curve");return{x:_,y:B}}else throw new Error(`bad point: got length ${l}, expected compressed=${g} or uncompressed=${h}`)}let f=t.toBytes||b,x=t.fromBytes||u;function m(T){let g=n.sqr(T),h=n.mul(g,T);return n.add(n.add(h,n.mul(T,o.a)),o.b)}function E(T,g){let h=n.sqr(g),l=m(T);return n.eql(h,l)}if(!E(o.Gx,o.Gy))throw new Error("bad curve params: generator point");let A=n.mul(n.pow(o.a,be),Fn),q=n.mul(n.sqr(o.b),BigInt(27));if(n.is0(n.add(A,q)))throw new Error("bad curve params: a or b");function H(T,g,h=!1){if(!n.isValid(g)||h&&n.is0(g))throw new Error(`bad point coordinate ${T}`);return g}function D(T){if(!(T instanceof R))throw new Error("ProjectivePoint expected")}function k(T){if(!a||!a.basises)throw new Error("no endo");return Qn(T,a.basises,i.ORDER)}let K=fe((T,g)=>{let{X:h,Y:l,Z:p}=T;if(n.eql(p,n.ONE))return{x:h,y:l};let w=T.is0();g==null&&(g=w?n.ONE:n.inv(p));let S=n.mul(h,g),_=n.mul(l,g),B=n.mul(p,g);if(w)return{x:n.ZERO,y:n.ZERO};if(!n.eql(B,n.ONE))throw new Error("invZ was invalid");return{x:S,y:_}}),F=fe(T=>{if(T.is0()){if(t.allowInfinityPoint&&!n.is0(T.Y))return;throw new Error("bad point: ZERO")}let{x:g,y:h}=T.toAffine();if(!n.isValid(g)||!n.isValid(h))throw new Error("bad point: x or y not field elements");if(!E(g,h))throw new Error("bad point: equation left != right");if(!T.isTorsionFree())throw new Error("bad point: not in prime-order subgroup");return!0});function $(T,g,h,l,p){return h=new R(n.mul(h.X,T),h.Y,h.Z),g=zt(l,g),h=zt(p,h),g.add(h)}class R{constructor(g,h,l){this.X=H("x",g),this.Y=H("y",h,!0),this.Z=H("z",l),Object.freeze(this)}static CURVE(){return o}static fromAffine(g){let{x:h,y:l}=g||{};if(!g||!n.isValid(h)||!n.isValid(l))throw new Error("invalid affine point");if(g instanceof R)throw new Error("projective point not allowed");return n.is0(h)&&n.is0(l)?R.ZERO:new R(h,l,n.ONE)}static fromBytes(g){let h=R.fromAffine(x(yt(g,void 0,"point")));return h.assertValidity(),h}static fromHex(g){return R.fromBytes(G("pointHex",g))}get x(){return this.toAffine().x}get y(){return this.toAffine().y}precompute(g=8,h=!0){return Y.createCache(this,g),h||this.multiply(be),this}assertValidity(){F(this)}hasEvenY(){let{y:g}=this.toAffine();if(!n.isOdd)throw new Error("Field doesn't support isOdd");return!n.isOdd(g)}equals(g){D(g);let{X:h,Y:l,Z:p}=this,{X:w,Y:S,Z:_}=g,B=n.eql(n.mul(h,_),n.mul(w,p)),I=n.eql(n.mul(l,_),n.mul(S,p));return B&&I}negate(){return new R(this.X,n.neg(this.Y),this.Z)}double(){let{a:g,b:h}=o,l=n.mul(h,be),{X:p,Y:w,Z:S}=this,_=n.ZERO,B=n.ZERO,I=n.ZERO,C=n.mul(p,p),j=n.mul(w,w),U=n.mul(S,S),L=n.mul(p,w);return L=n.add(L,L),I=n.mul(p,S),I=n.add(I,I),_=n.mul(g,I),B=n.mul(l,U),B=n.add(_,B),_=n.sub(j,B),B=n.add(j,B),B=n.mul(_,B),_=n.mul(L,_),I=n.mul(l,I),U=n.mul(g,U),L=n.sub(C,U),L=n.mul(g,L),L=n.add(L,I),I=n.add(C,C),C=n.add(I,C),C=n.add(C,U),C=n.mul(C,L),B=n.add(B,C),U=n.mul(w,S),U=n.add(U,U),C=n.mul(U,L),_=n.sub(_,C),I=n.mul(U,j),I=n.add(I,I),I=n.add(I,I),new R(_,B,I)}add(g){D(g);let{X:h,Y:l,Z:p}=this,{X:w,Y:S,Z:_}=g,B=n.ZERO,I=n.ZERO,C=n.ZERO,j=o.a,U=n.mul(o.b,be),L=n.mul(h,w),P=n.mul(l,S),V=n.mul(p,_),W=n.add(h,l),N=n.add(w,S);W=n.mul(W,N),N=n.add(L,P),W=n.sub(W,N),N=n.add(h,p);let Z=n.add(w,_);return N=n.mul(N,Z),Z=n.add(L,V),N=n.sub(N,Z),Z=n.add(l,p),B=n.add(S,_),Z=n.mul(Z,B),B=n.add(P,V),Z=n.sub(Z,B),C=n.mul(j,N),B=n.mul(U,V),C=n.add(B,C),B=n.sub(P,C),C=n.add(P,C),I=n.mul(B,C),P=n.add(L,L),P=n.add(P,L),V=n.mul(j,V),N=n.mul(U,N),P=n.add(P,V),V=n.sub(L,V),V=n.mul(j,V),N=n.add(N,V),L=n.mul(P,N),I=n.add(I,L),L=n.mul(Z,N),B=n.mul(W,B),B=n.sub(B,L),L=n.mul(W,P),C=n.mul(Z,C),C=n.add(C,L),new R(B,I,C)}subtract(g){return this.add(g.negate())}is0(){return this.equals(R.ZERO)}multiply(g){let{endo:h}=t;if(!i.isValidNot0(g))throw new Error("invalid scalar: out of range");let l,p,w=S=>Y.cached(this,S,_=>he(R,_));if(h){let{k1neg:S,k1:_,k2neg:B,k2:I}=k(g),{p:C,f:j}=w(_),{p:U,f:L}=w(I);p=j.add(L),l=$(h.beta,C,U,S,B)}else{let{p:S,f:_}=w(g);l=S,p=_}return he(R,[l,p])[0]}multiplyUnsafe(g){let{endo:h}=t,l=this;if(!i.isValid(g))throw new Error("invalid scalar: out of range");if(g===lt||l.is0())return R.ZERO;if(g===Pt)return l;if(Y.hasCache(this))return this.multiply(g);if(h){let{k1neg:p,k1:w,k2neg:S,k2:_}=k(g),{p1:B,p2:I}=mn(R,l,w,_);return $(h.beta,B,I,p,S)}else return Y.unsafe(l,g)}multiplyAndAddUnsafe(g,h,l){let p=this.multiplyUnsafe(h).add(g.multiplyUnsafe(l));return p.is0()?void 0:p}toAffine(g){return K(this,g)}isTorsionFree(){let{isTorsionFree:g}=t;return s===Pt?!0:g?g(R,this):Y.unsafe(this,c).is0()}clearCofactor(){let{clearCofactor:g}=t;return s===Pt?this:g?g(R,this):this.multiplyUnsafe(s)}isSmallOrder(){return this.multiplyUnsafe(s).is0()}toBytes(g=!0){return Kt(g,"isCompressed"),this.assertValidity(),f(R,this,g)}toHex(g=!0){return st(this.toBytes(g))}toString(){return`<Point ${this.is0()?"ZERO":this.toHex()}>`}get px(){return this.X}get py(){return this.X}get pz(){return this.Z}toRawBytes(g=!0){return this.toBytes(g)}_setWindowSize(g){this.precompute(g)}static normalizeZ(g){return he(R,g)}static msm(g,h){return wn(R,i,g,h)}static fromPrivateKey(g){return R.BASE.multiply(Ut(i,g))}}R.BASE=new R(o.Gx,o.Gy,n.ONE),R.ZERO=new R(n.ZERO,n.ONE,n.ZERO),R.Fp=n,R.Fn=i;let O=i.BITS,Y=new de(R,t.endo?Math.ceil(O/2):O);return R.BASE.precompute(8),R}function Sn(e){return Uint8Array.of(e?2:3)}function vn(e,t){return{secretKey:t.BYTES,publicKey:1+e.BYTES,publicKeyUncompressed:1+2*e.BYTES,publicKeyHasPrefix:!0,signature:2*t.BYTES}}function er(e,t={}){let{Fn:r}=e,n=t.randomBytes||Vt,i=Object.assign(vn(e.Fp,r),{seed:Oe(r.ORDER)});function o(f){try{return!!Ut(r,f)}catch{return!1}}function s(f,x){let{publicKey:m,publicKeyUncompressed:E}=i;try{let A=f.length;return x===!0&&A!==m||x===!1&&A!==E?!1:!!e.fromBytes(f)}catch{return!1}}function c(f=n(i.seed)){return Ue(yt(f,i.seed,"seed"),r.ORDER)}function a(f,x=!0){return e.BASE.multiply(Ut(r,f)).toBytes(x)}function d(f){let x=c(f);return{secretKey:x,publicKey:a(x)}}function y(f){if(typeof f=="bigint")return!1;if(f instanceof e)return!0;let{secretKey:x,publicKey:m,publicKeyUncompressed:E}=i;if(r.allowedLengths||x===m)return;let A=G("key",f).length;return A===m||A===E}function b(f,x,m=!0){if(y(f)===!0)throw new Error("first arg must be private key");if(y(x)===!1)throw new Error("second arg must be public key");let E=Ut(r,f);return e.fromHex(x).multiply(E).toBytes(m)}return Object.freeze({getPublicKey:a,getSharedSecret:b,keygen:d,Point:e,utils:{isValidSecretKey:o,isValidPublicKey:s,randomSecretKey:c,isValidPrivateKey:o,randomPrivateKey:c,normPrivateKeyToScalar:f=>Ut(r,f),precompute(f=8,x=e.BASE){return x.precompute(f,!1)}},lengths:i})}function nr(e,t,r={}){ee(t),Zt(r,{},{hmac:"function",lowS:"boolean",randomBytes:"function",bits2int:"function",bits2int_modN:"function"});let n=r.randomBytes||Vt,i=r.hmac||((h,...l)=>Se(t,h,et(...l))),{Fp:o,Fn:s}=e,{ORDER:c,BITS:a}=s,{keygen:d,getPublicKey:y,getSharedSecret:b,utils:u,lengths:f}=er(e,r),x={prehash:!1,lowS:typeof r.lowS=="boolean"?r.lowS:!1,format:void 0,extraEntropy:!1},m="compact";function E(h){let l=c>>Pt;return h>l}function A(h,l){if(!s.isValidNot0(l))throw new Error(`invalid signature ${h}: out of range 1..Point.Fn.ORDER`);return l}function q(h,l){je(l);let p=f.signature,w=l==="compact"?p:l==="recovered"?p+1:void 0;return yt(h,w,`${l} signature`)}class H{constructor(l,p,w){this.r=A("r",l),this.s=A("s",p),w!=null&&(this.recovery=w),Object.freeze(this)}static fromBytes(l,p=m){q(l,p);let w;if(p==="der"){let{r:I,s:C}=ut.toSig(yt(l));return new H(I,C)}p==="recovered"&&(w=l[0],p="compact",l=l.subarray(1));let S=s.BYTES,_=l.subarray(0,S),B=l.subarray(S,S*2);return new H(s.fromBytes(_),s.fromBytes(B),w)}static fromHex(l,p){return this.fromBytes(bt(l),p)}addRecoveryBit(l){return new H(this.r,this.s,l)}recoverPublicKey(l){let p=o.ORDER,{r:w,s:S,recovery:_}=this;if(_==null||![0,1,2,3].includes(_))throw new Error("recovery id invalid");if(c*_n<p&&_>1)throw new Error("recovery id is ambiguous for h>1 curve");let I=_===2||_===3?w+c:w;if(!o.isValid(I))throw new Error("recovery id 2 or 3 invalid");let C=o.toBytes(I),j=e.fromBytes(et(Sn((_&1)===0),C)),U=s.inv(I),L=k(G("msgHash",l)),P=s.create(-L*U),V=s.create(S*U),W=e.BASE.multiplyUnsafe(P).add(j.multiplyUnsafe(V));if(W.is0())throw new Error("point at infinify");return W.assertValidity(),W}hasHighS(){return E(this.s)}toBytes(l=m){if(je(l),l==="der")return bt(ut.hexFromSig(this));let p=s.toBytes(this.r),w=s.toBytes(this.s);if(l==="recovered"){if(this.recovery==null)throw new Error("recovery bit must be present");return et(Uint8Array.of(this.recovery),p,w)}return et(p,w)}toHex(l){return st(this.toBytes(l))}assertValidity(){}static fromCompact(l){return H.fromBytes(G("sig",l),"compact")}static fromDER(l){return H.fromBytes(G("sig",l),"der")}normalizeS(){return this.hasHighS()?new H(this.r,s.neg(this.s),this.recovery):this}toDERRawBytes(){return this.toBytes("der")}toDERHex(){return st(this.toBytes("der"))}toCompactRawBytes(){return this.toBytes("compact")}toCompactHex(){return st(this.toBytes("compact"))}}let D=r.bits2int||function(l){if(l.length>8192)throw new Error("input is too large");let p=pt(l),w=l.length*8-a;return w>0?p>>BigInt(w):p},k=r.bits2int_modN||function(l){return s.create(D(l))},K=ft(a);function F(h){return He("num < 2^"+a,h,lt,K),s.toBytes(h)}function $(h,l){return yt(h,void 0,"message"),l?yt(t(h),void 0,"prehashed message"):h}function R(h,l,p){if(["recovered","canonical"].some(P=>P in p))throw new Error("sign() legacy options not supported");let{lowS:w,prehash:S,extraEntropy:_}=ke(p,x);h=$(h,S);let B=k(h),I=Ut(s,l),C=[F(I),F(B)];if(_!=null&&_!==!1){let P=_===!0?n(f.secretKey):_;C.push(G("extraEntropy",P))}let j=et(...C),U=B;function L(P){let V=D(P);if(!s.isValidNot0(V))return;let W=s.inv(V),N=e.BASE.multiply(V).toAffine(),Z=s.create(N.x);if(Z===lt)return;let te=s.create(W*s.create(U+Z*I));if(te===lt)return;let $e=(N.x===Z?0:2)|Number(N.y&Pt),We=te;return w&&E(te)&&(We=s.neg(te),$e^=1),new H(Z,We,$e)}return{seed:j,k2sig:L}}function O(h,l,p={}){h=G("message",h);let{seed:w,k2sig:S}=R(h,l,p);return qe(t.outputLen,s.BYTES,i)(w,S)}function Y(h){let l,p=typeof h=="string"||ht(h),w=!p&&h!==null&&typeof h=="object"&&typeof h.r=="bigint"&&typeof h.s=="bigint";if(!p&&!w)throw new Error("invalid signature, expected Uint8Array, hex string or Signature instance");if(w)l=new H(h.r,h.s);else if(p){try{l=H.fromBytes(G("sig",h),"der")}catch(S){if(!(S instanceof ut.Err))throw S}if(!l)try{l=H.fromBytes(G("sig",h),"compact")}catch{return!1}}return l||!1}function T(h,l,p,w={}){let{lowS:S,prehash:_,format:B}=ke(w,x);if(p=G("publicKey",p),l=$(G("message",l),_),"strict"in w)throw new Error("options.strict was renamed to lowS");let I=B===void 0?Y(h):H.fromBytes(G("sig",h),B);if(I===!1)return!1;try{let C=e.fromBytes(p);if(S&&I.hasHighS())return!1;let{r:j,s:U}=I,L=k(l),P=s.inv(U),V=s.create(L*P),W=s.create(j*P),N=e.BASE.multiplyUnsafe(V).add(C.multiplyUnsafe(W));return N.is0()?!1:s.create(N.x)===j}catch{return!1}}function g(h,l,p={}){let{prehash:w}=ke(p,x);return l=$(l,w),H.fromBytes(h,"recovered").recoverPublicKey(l).toBytes()}return Object.freeze({keygen:d,getPublicKey:y,getSharedSecret:b,utils:u,lengths:f,Point:e,sign:O,verify:T,recoverPublicKey:g,Signature:H,hash:t})}function rr(e){let t={a:e.a,b:e.b,p:e.Fp.ORDER,n:e.n,h:e.h,Gx:e.Gx,Gy:e.Gy},r=e.Fp,n=e.allowedPrivateKeyLengths?Array.from(new Set(e.allowedPrivateKeyLengths.map(s=>Math.ceil(s/2)))):void 0,i=xt(t.n,{BITS:e.nBitLength,allowedLengths:n,modFromBytes:e.wrapPrivateKey}),o={Fp:r,Fn:i,allowInfinityPoint:e.allowInfinityPoint,endo:e.endo,isTorsionFree:e.isTorsionFree,clearCofactor:e.clearCofactor,fromBytes:e.fromBytes,toBytes:e.toBytes};return{CURVE:t,curveOpts:o}}function or(e){let{CURVE:t,curveOpts:r}=rr(e),n={hmac:e.hmac,randomBytes:e.randomBytes,lowS:e.lowS,bits2int:e.bits2int,bits2int_modN:e.bits2int_modN};return{CURVE:t,curveOpts:r,hash:e.hash,ecdsaOpts:n}}function ir(e,t){let r=t.Point;return Object.assign({},t,{ProjectivePoint:r,CURVE:Object.assign({},e,le(r.Fn.ORDER,r.Fn.BITS))})}function An(e){let{CURVE:t,curveOpts:r,hash:n,ecdsaOpts:i}=or(e),o=tr(t,r),s=nr(o,n,i);return ir(e,s)}function In(e,t){let r=n=>An({...e,hash:n});return{...r(t),create:r}}var Ge={p:BigInt("0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2f"),n:BigInt("0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141"),h:BigInt(1),a:BigInt(0),b:BigInt(7),Gx:BigInt("0x79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"),Gy:BigInt("0x483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8")},sr={beta:BigInt("0x7ae96a2b657c07106e64479eac3434e99cf0497512f58995c1396c28719501ee"),basises:[[BigInt("0x3086d221a7d46bcde86c90e49284eb15"),-BigInt("0xe4437ed6010e88286f547fa90abfe4c3")],[BigInt("0x114ca50f7a8e2f3f657c1108d9d44cfd8"),BigInt("0x3086d221a7d46bcde86c90e49284eb15")]]};var Rn=BigInt(2);function cr(e){let t=Ge.p,r=BigInt(3),n=BigInt(6),i=BigInt(11),o=BigInt(22),s=BigInt(23),c=BigInt(44),a=BigInt(88),d=e*e*e%t,y=d*d*e%t,b=Q(y,r,t)*y%t,u=Q(b,r,t)*y%t,f=Q(u,Rn,t)*d%t,x=Q(f,i,t)*f%t,m=Q(x,o,t)*x%t,E=Q(m,c,t)*m%t,A=Q(E,a,t)*E%t,q=Q(A,c,t)*m%t,H=Q(q,r,t)*y%t,D=Q(H,s,t)*x%t,k=Q(D,n,t)*d%t,K=Q(k,Rn,t);if(!Ke.eql(Ke.sqr(K),e))throw new Error("Cannot find square root");return K}var Ke=xt(Ge.p,{sqrt:cr}),vt=In({...Ge,Fp:Ke,lowS:!0,endo:sr},ie);var ge=pt;var Me=ie;var dt=vt.ProjectivePoint.BASE,mt=vt.ProjectivePoint.ZERO,rt=vt.CURVE.n,Wt=vt.CURVE.Fp.ORDER,Jt=0n,Qt=7n,Yt=new TextEncoder;function M(e,t){let r=e%t;return r>=0n?r:r+t}function Nt(e,t,r){if(r===1n)return 0n;let n=1n,i=M(e,r),o=t;for(;o>0n;)(o&1n)===1n&&(n=n*i%r),o>>=1n,i=i*i%r;return n}function Ze(e,t){let r=0n,n=1n,i=t,o=M(e,t);for(;o!==0n;){let s=i/o;[r,n]=[n,r-s*n],[i,o]=[o,i-s*o]}if(i>1n)throw new Error("Value is not invertible modulo m");return r<0n&&(r+=t),r}function it(e=rt){let t=vt.utils.randomPrivateKey(),r=ge(t);return M(r-1n,e-1n)+1n}function v(e,t,r=rt){let n=M(e,r);return n===0n||t.equals(mt)?mt:t.multiply(n)}function Ft(e){return typeof e=="object"&&e!==null&&"toAffine"in e&&"multiply"in e&&"equals"in e}function It(e){if(!Ft(e)||e.equals(mt))return!1;try{return e.assertValidity(),!0}catch{return!1}}function me(e){if(e.equals(mt))return"INFINITY";let t=e.toAffine();return`${t.x.toString()},${t.y.toString()}`}function J(e,t,r=rt){return e.subtract(t)}function wt(e,...t){let r=Me.create();function n(o){if(Ft(o))r.update(Yt.encode(me(o)));else if(Array.isArray(o))for(let s of o)n(s);else o instanceof Uint8Array?r.update(o):r.update(Yt.encode(String(o)))}for(let o of t)n(o);let i=r.digest();return M(ge(i),e)}function Dt(e,t,r=Wt,n=Jt,i=Qt){let o=0,s=Yt.encode(me(e)),c=Yt.encode(String(t)),a=(r-1n)/2n,d=(r+1n)/4n;for(;;){let y=Me.create();y.update(s),y.update(c),y.update(Yt.encode(String(o)));let b=M(ge(y.digest()),r),u=M(Nt(b,3n,r)+n*b+i,r);if(Nt(u,a,r)===1n){let f=Nt(u,d,r);try{let x=vt.ProjectivePoint.fromAffine({x:b,y:f});return x.assertValidity(),x}catch{}}o+=1}}function ze(e,t,r,n=rt,i=dt){if(r<1||t<r)throw new Error("Invalid threshold parameters: require 1 <= k <= N.");let o=[M(e,n)];for(let c=0;c<r-1;c++)o.push(it(n));let s=[];for(let c=1;c<=t;c++){let a=BigInt(c),d=0n;for(let b=0;b<o.length;b++){let u=o[b]*Nt(a,BigInt(b),n)%n;d=(d+u)%n}let y=v(d,i,n);s.push({omega:a,S_net_j:d,P_net_j:y})}return s}function we(e,t,r,n,i=dt,o=rt){let s=n??v(r,i,o),c=v(r,e,o),a=it(o),d=v(a,i,o),y=v(a,e,o),b=wt(o,i,s,e,c,d,y),u=M(a+b*r,o);return{omega:t,P_net_j:s,D_j:c,c_j:b,y_j:u}}function Xt(e,t,r,n,i,o=dt,s=rt){if(!It(t)||!It(i))return!1;let c=J(v(n,o,s),v(r,i,s),s),a=J(v(n,e,s),v(r,t,s),s),d=wt(s,o,i,e,t,c,a);return r===d}function Ee(e){return 97*e+196}var Rt=class{secretKey;publicKey;constructor(t,r){this.secretKey=t,this.publicKey=r}get secret_key(){return this.secretKey}get public_key(){return this.publicKey}get sk(){return this.secretKey}get pk(){return this.publicKey}},kt=class{I_scope;L;SID;P_net;C_1;C_2;ch_0;x;z;_message;constructor(t){this.I_scope=t.I_scope,this.L=t.L,this.SID=t.SID,this.P_net=t.P_net,this.C_1=t.C_1,this.C_2=t.C_2,this.ch_0=t.ch_0,this.x=t.x,this.z=t.z,this._message=t.message}get keyImage(){return this.I_scope}get scopeTag(){return this.I_scope}get ring(){return this.L}get sid(){return this.SID}get pNet(){return this.P_net}get c1(){return this.C_1}get c2(){return this.C_2}get c0(){return this.ch_0}get sizeBytes(){return Ee(this.L.length)}},Ct=class{G=dt;q=rt;p=Wt;a=Jt;b=Qt;L_registry=[];SIDs;n_min;enforceRegistry;S_net;P_net;nodePublicKeys=new Map;constructor(t={}){this.n_min=t.nMin??3,this.SIDs=t.sids?[...t.sids]:["SID_PROJECT_A","SID_PROJECT_B"],this.enforceRegistry=t.enforceRegistry??!0,this.S_net=t.sNet??it(this.q),this.P_net=v(this.S_net,this.G,this.q)}};function Cn(e){return e.map(t=>t instanceof Rt?t.publicKey:t)}function ar(e,t){return e.findIndex(r=>r.equals(t))}function ye(e,t){return t.some(r=>r.length===e.length&&r.every((n,i)=>n.equals(e[i])))}function pe(e){let t=e?e.q:rt,r=e?e.G:dt,n=it(t),i=v(n,r,t);return new Rt(n,i)}function Ye(e,t,r,n,i){let o=i??new Ct({enforceRegistry:!1}),s=t instanceof Rt?t.secretKey:t,c=Cn(r),a=v(s,o.G,o.q);o.enforceRegistry||(ye(c,o.L_registry)||o.L_registry.push(c),o.SIDs.includes(n)||o.SIDs.push(n));let d=ar(c,a);if(d===-1||!ye(c,o.L_registry)||!o.SIDs.includes(n)||c.length<o.n_min)return null;let y=Dt(a,n,o.p,o.a,o.b),b=v(s,y,o.q),u=it(o.q),f=it(o.q),x=it(o.q),m=v(f,o.G,o.q),E=a.add(v(f,o.P_net,o.q)),A=v(u,o.G,o.q),q=v(u,y,o.q),H=v(x,o.G,o.q),D=v(x,o.P_net,o.q),k=c.length,K=new Array(k).fill(0n),F=new Array(k).fill(0n),$=new Array(k).fill(0n);K[(d+1)%k]=wt(o.q,e,c,b,n,m,E,A,q,H,D);for(let R=1;R<k;R++){let O=(d+R)%k;F[O]=it(o.q),$[O]=it(o.q);let Y=c[O],T=Dt(Y,n,o.p,o.a,o.b),g=v(F[O],o.G,o.q).add(v(K[O],Y,o.q)),h=v(F[O],T,o.q).add(v(K[O],b,o.q)),l=J(v($[O],o.G,o.q),v(K[O],m,o.q),o.q),p=J(E,Y,o.q),w=J(v($[O],o.P_net,o.q),v(K[O],p,o.q),o.q);K[(O+1)%k]=wt(o.q,e,c,b,n,m,E,g,h,l,w)}return F[d]=M(u-K[d]*s,o.q),$[d]=M(x+K[d]*f,o.q),new kt({I_scope:b,L:c,SID:n,P_net:o.P_net,C_1:m,C_2:E,ch_0:K[0],x:F,z:$,message:e})}function At(e,t,r){if(!t)return!1;let{I_scope:n,L:i,SID:o,P_net:s,C_1:c,C_2:a,ch_0:d,x:y,z:b}=t;if(r){if((r.enforceRegistry||r.L_registry.length>0)&&!ye(i,r.L_registry)||(r.enforceRegistry||r.SIDs.length>0)&&!r.SIDs.includes(o)||!s.equals(r.P_net)||i.length<r.n_min)return!1}else if(i.length<2)return!1;if(!It(n)||!It(c)||!It(a))return!1;let u=r?r.G:dt,f=r?r.q:rt,x=r?r.p:Wt,m=r?r.a:Jt,E=r?r.b:Qt,A=i.length;if(y.length!==A||b.length!==A)return!1;let q=new Array(A).fill(0n);q[0]=d;let H=i[0],D=Dt(H,o,x,m,E),k=v(y[0],u,f).add(v(q[0],H,f)),K=v(y[0],D,f).add(v(q[0],n,f)),F=J(v(b[0],u,f),v(q[0],c,f),f),$=J(a,H,f),R=J(v(b[0],s,f),v(q[0],$,f),f);q[1%A]=wt(f,e,i,n,o,c,a,k,K,F,R);for(let O=1;O<A;O++){let Y=i[O],T=Dt(Y,o,x,m,E),g=v(y[O],u,f).add(v(q[O],Y,f)),h=v(y[O],T,f).add(v(q[O],n,f)),l=J(v(b[O],u,f),v(q[O],c,f),f),p=J(a,Y,f),w=J(v(b[O],s,f),v(q[O],p,f),f),S=wt(f,e,i,n,o,c,a,g,h,l,w),_=(O+1)%A;if(_===0){if(S===q[0])return!0}else q[_]=S}return!1}function Xe(e,t,r,n,i){if(!e||!t)return!1;if(t instanceof kt){let o=t;return e.SID!==o.SID||e._message!==void 0&&!At(e._message,e,i)||o._message!==void 0&&!At(o._message,o,i)?!1:e.I_scope.equals(o.I_scope)}return!r||n===void 0||e.SID!==r.SID?!1:At(t,e,i)&&At(n,r,i)?e.I_scope.equals(r.I_scope):!1}function $t(e,t,r,n=rt,i){let{C_1:o,C_2:s}=e;if(t.length===0)throw new Error("Non-empty decryption shares are required for tracing.");r instanceof Ct&&(i=r,r=void 0);let c=i?i.G:dt,a=i?i.q:n,d=i?i.nodePublicKeys:new Map,y=[],b=[],u=t[0];if(Ft(u)){if(!r||r.length!==t.length)throw new Error("Matching omega_list is required when D_list contains curve points.");for(let E=0;E<t.length;E++)y.push(t[E]),b.push(BigInt(r[E]))}else if("D_j"in u){let E=t;for(let A=0;A<E.length;A++){let q=E[A],H=q.omega??(r?BigInt(r[A]):void 0);if(H===void 0)return null;let D=q.P_net_j??d.get(H);if(!D||!Xt(o,q.D_j,q.c_j,q.y_j,D,c,a))return null;y.push(q.D_j),b.push(H)}}else{let E=t;for(let A of E){let q=A.P_net_j??v(A.S_net_j,c,a),H=we(o,A.omega,A.S_net_j,q,c,a);if(!Xt(o,H.D_j,H.c_j,H.y_j,q,c,a))return null;y.push(H.D_j),b.push(BigInt(A.omega))}}let f=y.length,x=new Array(f).fill(0n);for(let E=0;E<f;E++){let A=1n,q=1n;for(let D=0;D<f;D++)if(D!==E){A=M(A*b[D],a);let k=M(b[D]-b[E],a);q=M(q*k,a)}let H=Ze(q,a);x[E]=M(A*H,a)}let m=mt;for(let E=0;E<f;E++){let A=v(x[E],y[E],a);m=m.equals(mt)?A:m.add(A)}return J(s,m,a)}var Hn=$t,xe=class extends Ct{N;k;shares;constructor(t={}){super({...t,enforceRegistry:t.enforceRegistry??!1}),this.N=t.nNodes??12,this.k=t.threshold??8,this.shares=ze(this.S_net,this.N,this.k,this.q,this.G);for(let r of this.shares)this.nodePublicKeys.set(r.omega,r.P_net_j)}static keygen(){return pe()}keygen(){return pe(this)}registerRing(t){let r=Cn(t);return ye(r,this.L_registry)||this.L_registry.push(r),r}registerSid(t){this.SIDs.includes(t)||this.SIDs.push(t)}sign(t,r,n,i="SID_PROJECT_A"){return Ye(t,r,n,i,this)}verify(t,r){return At(t,r,this)}link(t,r,n,i){return Xe(t,r,n,i,this)}computeDecryptionShare(t,r){let n=r.P_net_j??this.nodePublicKeys.get(r.omega)??v(r.S_net_j,this.G,this.q);return we(t.C_1,r.omega,r.S_net_j,n,this.G,this.q)}computeDecryptionShares(t,r){let n=r??this.shares.slice(0,this.k),i=[],o=[];for(let s of n){let c=this.computeDecryptionShare(t,s);i.push(c.omega),o.push(c)}return{D_list:o,omega_list:i}}verifyDecryptionShare(t,r){let n=r.P_net_j??this.nodePublicKeys.get(r.omega);return n?Xt(t.C_1,r.D_j,r.c_j,r.y_j,n,this.G,this.q):!1}trace(t,r,n){if(!r){let i=this.computeDecryptionShares(t);return $t(t,i.D_list,i.omega_list,this.q,this)}return $t(t,r,n,this.q,this)}deanonymize(t,r,n){return this.trace(t,r,n)}static getSignatureSizeBytes(t){return Ee(t)}};return Pn(fr);})();
+/*! Bundled license information:
+
+@noble/hashes/esm/utils.js:
+  (*! noble-hashes - MIT License (c) 2022 Paul Miller (paulmillr.com) *)
+
+@noble/curves/esm/utils.js:
+@noble/curves/esm/abstract/modular.js:
+@noble/curves/esm/abstract/curve.js:
+@noble/curves/esm/abstract/weierstrass.js:
+@noble/curves/esm/_shortw_utils.js:
+@noble/curves/esm/secp256k1.js:
+  (*! noble-curves - MIT License (c) 2022 Paul Miller (paulmillr.com) *)
+*/
+
+(function () {
+  const { DSLRS, pointToStr, getSignatureSizeBytes } = window.DSLRSBundle;
+
+  // Initialize DSLRS scheme (N=8 opener nodes, threshold k=5, n_min=3)
+  const scheme = new DSLRS({
+    nMin: 3,
+    nNodes: 8,
+    threshold: 5,
+    sids: ["SID_PROJECT_A", "SID_PROJECT_B", "SID_TRIAL_2026"],
+  });
+
+  function shortPoint(pt) {
+    const str = pointToStr(pt);
+    if (str === "INFINITY") return "INFINITY";
+    const [x, y] = str.split(",");
+    return `(${x.slice(0, 8)}…${x.slice(-4)}, ${y.slice(0, 8)}…${y.slice(-4)})`;
+  }
+
+  function shortScalar(n) {
+    const hex = n.toString(16);
+    return `0x${hex.slice(0, 8)}…${hex.slice(-6)}`;
+  }
+
+  // State
+  const userNames = ["Alice", "Bob", "Carol", "Dave", "Eve", "Frank", "Grace", "Heidi"];
+  const users = [];
+  let activeSignerId = 1;
+  const signatures = [];
+
+  // Opener nodes state
+  const nodeStates = scheme.shares.map((share, idx) => ({
+    index: idx + 1,
+    omega: share.omega,
+    share: share,
+    selected: idx < 5, // First 5 selected by default (k=5)
+    malicious: false,
+  }));
+
+  function addKeyPair(customName) {
+    const id = users.length + 1;
+    const name = customName || userNames[id - 1] || `User #${id}`;
+    const kp = scheme.keygen();
+    const inRing = id <= 4; // First 4 in ring initially
+    users.push({
+      id,
+      name,
+      kp,
+      inRing,
+    });
+    return users[users.length - 1];
+  }
+
+  // Populate 6 initial users
+  for (let i = 0; i < 6; i++) {
+    addKeyPair();
+  }
+
+  // Header stats
+  document.getElementById("stat-nmin").textContent = String(scheme.n_min);
+  document.getElementById("stat-threshold").textContent = `${scheme.k} of ${scheme.N}`;
+  document.getElementById("stat-pnet").textContent = shortPoint(scheme.P_net);
+
+  // Render Key Registry
+  function renderKeys() {
+    const grid = document.getElementById("keys-grid");
+    grid.innerHTML = "";
+
+    users.forEach((u) => {
+      const isSigner = u.id === activeSignerId;
+      const card = document.createElement("div");
+      card.className = `p-3 rounded-xl border transition cursor-pointer flex flex-col justify-between gap-2 ${
+        u.inRing
+          ? "border-[var(--primary)] bg-[var(--secondary)]"
+          : "border-[var(--border)] bg-[var(--background)] opacity-70 hover:opacity-100"
+      }`;
+
+      card.innerHTML = `
+        <div class="flex items-center justify-between gap-2">
+          <div class="flex items-center gap-2">
+            <input type="checkbox" ${u.inRing ? "checked" : ""} class="rounded pointer-events-none" />
+            <span class="text-xs font-bold">${u.name} <span class="text-[var(--muted-foreground)] font-normal">(P_${u.id})</span></span>
+          </div>
+          <div class="flex items-center gap-1">
+            ${
+              isSigner
+                ? `<span class="px-2 py-0.5 rounded text-xs font-semibold bg-[var(--primary)] text-[var(--primary-foreground)]">Active Signer (S_${u.id})</span>`
+                : `<button data-set-signer="${u.id}" class="px-2 py-0.5 rounded text-xs font-medium border border-[var(--border)] bg-[var(--card)] hover:bg-[var(--primary)] hover:text-[var(--primary-foreground)] transition">Set Signer</button>`
+            }
+          </div>
+        </div>
+        <div class="text-xs font-mono text-[var(--muted-foreground)] truncate">
+          PK: ${shortPoint(u.kp.publicKey)}
+        </div>
+      `;
+
+      card.addEventListener("click", (e) => {
+        const btn = e.target.closest("[data-set-signer]");
+        if (btn) {
+          e.stopPropagation();
+          const targetId = Number(btn.getAttribute("data-set-signer"));
+          activeSignerId = targetId;
+          const targetUser = users.find((item) => item.id === targetId);
+          if (targetUser) targetUser.inRing = true;
+          renderKeys();
+          return;
+        }
+        u.inRing = !u.inRing;
+        if (!u.inRing && u.id === activeSignerId) {
+          const another = users.find((item) => item.inRing);
+          if (another) activeSignerId = another.id;
+        }
+        renderKeys();
+      });
+
+      grid.appendChild(card);
+    });
+
+    // Update summary footer
+    const ringMembers = users.filter((u) => u.inRing);
+    const ringSummary = document.getElementById("ring-summary-badges");
+    if (ringMembers.length < scheme.n_min) {
+      ringSummary.innerHTML = `<span class="text-red-400">${ringMembers.length} selected (Need at least n_min = ${scheme.n_min})</span>`;
+    } else {
+      ringSummary.textContent = `{ ${ringMembers.map((u) => u.name).join(", ")} } (n = ${ringMembers.length}, ${getSignatureSizeBytes(ringMembers.length)} bytes)`;
+    }
+
+    const activeUser = users.find((u) => u.id === activeSignerId);
+    document.getElementById("signer-summary-badge").textContent = activeUser
+      ? `${activeUser.name} (P_${activeUser.id})`
+      : "None";
+  }
+
+  // Select All / Add Key buttons
+  document.getElementById("btn-select-all").addEventListener("click", () => {
+    const allSelected = users.every((u) => u.inRing);
+    users.forEach((u) => {
+      u.inRing = !allSelected;
+    });
+    if (!users.some((u) => u.inRing)) {
+      users.slice(0, 3).forEach((u) => (u.inRing = true));
+    }
+    if (!users.find((u) => u.id === activeSignerId)?.inRing) {
+      activeSignerId = users.find((u) => u.inRing).id;
+    }
+    renderKeys();
+  });
+
+  document.getElementById("btn-add-key").addEventListener("click", () => {
+    const newUser = addKeyPair();
+    newUser.inRing = true;
+    renderKeys();
+  });
+
+  // SID Presets & Message Presets
+  document.querySelectorAll(".sid-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const sid = btn.getAttribute("data-sid");
+      document.getElementById("input-sid").value = sid;
+      document.querySelectorAll(".sid-btn").forEach((b) => {
+        b.className =
+          b === btn
+            ? "sid-btn px-2.5 py-1.5 rounded-lg text-xs font-mono border border-[var(--border)] bg-[var(--primary)] text-[var(--primary-foreground)] font-semibold truncate"
+            : "sid-btn px-2.5 py-1.5 rounded-lg text-xs font-mono border border-[var(--border)] bg-[var(--secondary)] text-[var(--secondary-foreground)] truncate";
+      });
+    });
+  });
+
+  document.querySelectorAll(".msg-preset").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.getElementById("input-message").value = btn.getAttribute("data-msg");
+    });
+  });
+
+  // Create Signature Helper
+  function createSignatureRecord(message, signerUser, ringUsers, sid) {
+    const ringPks = ringUsers.map((u) => u.kp.publicKey);
+    scheme.registerRing(ringPks);
+    scheme.registerSid(sid);
+
+    const t0 = performance.now();
+    const sigma = scheme.sign(message, signerUser.kp, ringPks, sid);
+    const elapsedMs = (performance.now() - t0).toFixed(1);
+
+    if (!sigma) return null;
+
+    const record = {
+      id: signatures.length + 1,
+      label: `σ_${signatures.length + 1}`,
+      message,
+      sid,
+      ringUsers: [...ringUsers],
+      actualSigner: signerUser, // Stored only for UI verification comparison after Deanonymize
+      sigma,
+      elapsedMs,
+    };
+    signatures.push(record);
+    return record;
+  }
+
+  // Render Signatures Ledger & Dropdowns
+  function renderSignatures() {
+    const list = document.getElementById("signatures-list");
+    const countBadge = document.getElementById("sig-count-badge");
+    countBadge.textContent = `${signatures.length} Signature${signatures.length === 1 ? "" : "s"}`;
+
+    list.innerHTML = "";
+    signatures.forEach((rec) => {
+      const card = document.createElement("div");
+      card.className =
+        "p-3.5 rounded-xl border border-[var(--border)] bg-[var(--background)] flex flex-col justify-between gap-3";
+
+      card.innerHTML = `
+        <div class="space-y-1.5">
+          <div class="flex items-center justify-between gap-2">
+            <div class="flex items-center gap-2">
+              <span class="px-2 py-0.5 rounded text-xs font-bold bg-[var(--primary)] text-[var(--primary-foreground)]">${rec.label}</span>
+              <span class="px-2 py-0.5 rounded text-xs font-mono bg-[var(--secondary)] text-[var(--secondary-foreground)] border border-[var(--border)]">${rec.sid}</span>
+            </div>
+            <span class="text-xs text-[var(--muted-foreground)]">${rec.sigma.sizeBytes} B • ${rec.elapsedMs} ms</span>
+          </div>
+          <div class="text-xs">
+            <span class="text-[var(--muted-foreground)]">Message:</span>
+            <strong class="font-mono ml-1">"${rec.message}"</strong>
+          </div>
+          <div class="text-xs">
+            <span class="text-[var(--muted-foreground)]">Ring L (n=${rec.ringUsers.length}):</span>
+            <span class="ml-1">${rec.ringUsers.map((u) => u.name).join(", ")}</span>
+          </div>
+          <div class="text-xs font-mono text-[var(--muted-foreground)] truncate" title="${pointToStr(rec.sigma.I_scope)}">
+            I_scope: ${shortPoint(rec.sigma.I_scope)}
+          </div>
+          <div class="text-xs font-mono text-[var(--muted-foreground)] truncate">
+            ch_1: ${shortScalar(rec.sigma.ch_0)}
+          </div>
+        </div>
+        <div class="flex flex-wrap items-center gap-1.5 pt-2 border-t border-[var(--border)]">
+          <button data-act-verify="${rec.id}" class="px-2 py-1 rounded text-xs font-medium bg-[var(--secondary)] text-[var(--secondary-foreground)] hover:opacity-80">
+            Verify
+          </button>
+          <button data-act-link1="${rec.id}" class="px-2 py-1 rounded text-xs font-medium bg-[var(--secondary)] text-[var(--secondary-foreground)] hover:opacity-80">
+            Set σ_1 (Link)
+          </button>
+          <button data-act-link2="${rec.id}" class="px-2 py-1 rounded text-xs font-medium bg-[var(--secondary)] text-[var(--secondary-foreground)] hover:opacity-80">
+            Set σ_2 (Link)
+          </button>
+          <button data-act-trace="${rec.id}" class="ml-auto px-2.5 py-1 rounded text-xs font-semibold bg-[var(--primary)] text-[var(--primary-foreground)] hover:opacity-90">
+            Deanonymize
+          </button>
+        </div>
+      `;
+
+      card.querySelector(`[data-act-verify="${rec.id}"]`).addEventListener("click", () => {
+        document.getElementById("verify-sig-select").value = String(rec.id);
+        document.getElementById("verify-msg-input").value = rec.message;
+        runVerify();
+      });
+
+      card.querySelector(`[data-act-link1="${rec.id}"]`).addEventListener("click", () => {
+        document.getElementById("link-sig1-select").value = String(rec.id);
+        runLink();
+      });
+
+      card.querySelector(`[data-act-link2="${rec.id}"]`).addEventListener("click", () => {
+        document.getElementById("link-sig2-select").value = String(rec.id);
+        runLink();
+      });
+
+      card.querySelector(`[data-act-trace="${rec.id}"]`).addEventListener("click", () => {
+        document.getElementById("trace-sig-select").value = String(rec.id);
+        runTrace();
+      });
+
+      list.appendChild(card);
+    });
+
+    // Update dropdowns
+    const verifySelect = document.getElementById("verify-sig-select");
+    const link1Select = document.getElementById("link-sig1-select");
+    const link2Select = document.getElementById("link-sig2-select");
+    const traceSelect = document.getElementById("trace-sig-select");
+
+    const prevV = verifySelect.value;
+    const prevL1 = link1Select.value;
+    const prevL2 = link2Select.value;
+    const prevT = traceSelect.value;
+
+    const optionsHtml = signatures
+      .map((r) => `<option value="${r.id}">${r.label} — "${r.message}" [${r.sid}]</option>`)
+      .join("");
+
+    verifySelect.innerHTML = optionsHtml;
+    link1Select.innerHTML = optionsHtml;
+    link2Select.innerHTML = optionsHtml;
+    traceSelect.innerHTML = optionsHtml;
+
+    if (prevV && signatures.some((s) => String(s.id) === prevV)) verifySelect.value = prevV;
+    if (prevL1 && signatures.some((s) => String(s.id) === prevL1)) link1Select.value = prevL1;
+    if (prevL2 && signatures.some((s) => String(s.id) === prevL2)) {
+      link2Select.value = prevL2;
+    } else if (signatures.length >= 2) {
+      link2Select.value = String(signatures[1].id);
+    }
+    if (prevT && signatures.some((s) => String(s.id) === prevT)) traceSelect.value = prevT;
+  }
+
+  // Sign Button Handler
+  document.getElementById("btn-sign").addEventListener("click", () => {
+    const errBox = document.getElementById("sign-error");
+    errBox.classList.add("hidden");
+
+    const ringUsers = users.filter((u) => u.inRing);
+    const signerUser = users.find((u) => u.id === activeSignerId);
+    const sid = document.getElementById("input-sid").value.trim();
+    const msg = document.getElementById("input-message").value;
+
+    if (!signerUser || !signerUser.inRing) {
+      errBox.textContent = "Error: Active signer must be a member of the selected ring L.";
+      errBox.classList.remove("hidden");
+      return;
+    }
+    if (ringUsers.length < scheme.n_min) {
+      errBox.textContent = `Error: Ring L must contain at least n_min = ${scheme.n_min} public keys.`;
+      errBox.classList.remove("hidden");
+      return;
+    }
+    if (!sid) {
+      errBox.textContent = "Error: Scope Identifier (SID) cannot be empty.";
+      errBox.classList.remove("hidden");
+      return;
+    }
+
+    const rec = createSignatureRecord(msg, signerUser, ringUsers, sid);
+    if (!rec) {
+      errBox.textContent = "Signing failed: preconditions not met.";
+      errBox.classList.remove("hidden");
+      return;
+    }
+
+    renderSignatures();
+    document.getElementById("verify-sig-select").value = String(rec.id);
+    document.getElementById("verify-msg-input").value = rec.message;
+    document.getElementById("trace-sig-select").value = String(rec.id);
+    runVerify();
+  });
+
+  // Verify Select change updates message input
+  document.getElementById("verify-sig-select").addEventListener("change", (e) => {
+    const rec = signatures.find((s) => String(s.id) === e.target.value);
+    if (rec) {
+      document.getElementById("verify-msg-input").value = rec.message;
+      runVerify();
+    }
+  });
+
+  function runVerify() {
+    const sigId = Number(document.getElementById("verify-sig-select").value);
+    const msg = document.getElementById("verify-msg-input").value;
+    const box = document.getElementById("verify-result-box");
+    const rec = signatures.find((s) => s.id === sigId);
+    if (!rec) return;
+
+    const t0 = performance.now();
+    const ok = scheme.verify(msg, rec.sigma);
+    const dt = (performance.now() - t0).toFixed(1);
+
+    if (ok) {
+      box.innerHTML = `
+        <div class="flex items-center justify-between">
+          <span class="font-bold text-emerald-500">✓ VALID SIGNATURE (Verify == 1)</span>
+          <span class="text-[var(--muted-foreground)]">${dt} ms</span>
+        </div>
+        <div class="text-[var(--muted-foreground)] mt-1">
+          Reconstructed circular challenge loop $ch'_1 \\to \\dots \\to ch'_${rec.ringUsers.length}$ and verified $ch'_1 == ch_1$ for <strong>${rec.label}</strong> on message <code class="font-mono">"${msg}"</code>. Signer remains anonymous within ring $L$.
+        </div>
+      `;
+    } else {
+      box.innerHTML = `
+        <div class="flex items-center justify-between">
+          <span class="font-bold text-red-500">✗ INVALID SIGNATURE (Verify == 0)</span>
+          <span class="text-[var(--muted-foreground)]">${dt} ms</span>
+        </div>
+        <div class="text-[var(--muted-foreground)] mt-1">
+          Challenge loop failed ($ch'_1 \\neq ch_1$): message <code class="font-mono">"${msg}"</code> does not match the signed payload <code class="font-mono">"${rec.message}"</code>.
+        </div>
+      `;
+    }
+  }
+
+  document.getElementById("btn-run-verify").addEventListener("click", runVerify);
+
+  // Link Runner
+  function runLink() {
+    const id1 = Number(document.getElementById("link-sig1-select").value);
+    const id2 = Number(document.getElementById("link-sig2-select").value);
+    const box = document.getElementById("link-result-box");
+
+    const rec1 = signatures.find((s) => s.id === id1);
+    const rec2 = signatures.find((s) => s.id === id2);
+    if (!rec1 || !rec2) return;
+
+    const t0 = performance.now();
+    const isLinked = scheme.link(rec1.sigma, rec1.message, rec2.sigma, rec2.message);
+    const dt = (performance.now() - t0).toFixed(1);
+
+    const sameSid = rec1.sid === rec2.sid;
+    const sameTag = rec1.sigma.I_scope.equals(rec2.sigma.I_scope);
+
+    if (isLinked) {
+      box.innerHTML = `
+        <div class="flex items-center justify-between">
+          <span class="font-bold text-amber-500">🔗 LINKED (Link == 1) — Same Signer in Scope "${rec1.sid}"</span>
+          <span class="text-[var(--muted-foreground)]">${dt} ms</span>
+        </div>
+        <div class="text-[var(--muted-foreground)] font-mono text-xs mt-1">
+          I_scope(${rec1.label}) == I_scope(${rec2.label}) == ${shortPoint(rec1.sigma.I_scope)}
+        </div>
+        <div class="text-[var(--muted-foreground)]">
+          Both signatures are valid and were produced by the same anonymous user under scope <strong>${rec1.sid}</strong> (even if the rings $L_1, L_2$ differ!).
+        </div>
+      `;
+    } else {
+      const reason = !sameSid
+        ? `Cross-Scope Unlinkability: SID_1 ("${rec1.sid}") ≠ SID_2 ("${rec2.sid}")`
+        : !sameTag
+        ? `Different Signers in Scope "${rec1.sid}": I_scope(${rec1.label}) ≠ I_scope(${rec2.label})`
+        : "One of the signatures failed verification";
+
+      box.innerHTML = `
+        <div class="flex items-center justify-between">
+          <span class="font-bold text-emerald-500">🛡️ UNLINKED (Link == 0)</span>
+          <span class="text-[var(--muted-foreground)]">${dt} ms</span>
+        </div>
+        <div class="text-[var(--muted-foreground)] mt-1">
+          <strong>Reason:</strong> ${reason}
+        </div>
+        <div class="text-[var(--muted-foreground)] font-mono text-xs">
+          I_scope(${rec1.label}): ${shortPoint(rec1.sigma.I_scope)}<br/>
+          I_scope(${rec2.label}): ${shortPoint(rec2.sigma.I_scope)}
+        </div>
+      `;
+    }
+  }
+
+  document.getElementById("btn-run-link").addEventListener("click", runLink);
+
+  // Render Authority Nodes Grid for Threshold Deanonymization
+  function renderNodes() {
+    const grid = document.getElementById("nodes-grid");
+    grid.innerHTML = "";
+
+    const selectedCount = nodeStates.filter((n) => n.selected).length;
+    const countEl = document.getElementById("selected-nodes-count");
+    countEl.textContent = `${selectedCount} / ${scheme.k} Required Nodes`;
+    countEl.className =
+      selectedCount >= scheme.k
+        ? "text-xs font-semibold px-2.5 py-1 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+        : "text-xs font-semibold px-2.5 py-1 rounded bg-red-500/20 text-red-400 border border-red-500/30";
+
+    nodeStates.forEach((node) => {
+      const card = document.createElement("div");
+      card.className = `p-2.5 rounded-xl border transition cursor-pointer flex flex-col justify-between gap-1.5 ${
+        node.selected
+          ? node.malicious
+            ? "border-red-500 bg-red-500/10"
+            : "border-[var(--primary)] bg-[var(--secondary)]"
+          : "border-[var(--border)] bg-[var(--background)] opacity-60 hover:opacity-100"
+      }`;
+
+      card.innerHTML = `
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-bold">Node ω_${node.index}</span>
+          <input type="checkbox" ${node.selected ? "checked" : ""} class="pointer-events-none" />
+        </div>
+        <div class="text-xs font-mono text-[var(--muted-foreground)] truncate">
+          P_{net-${node.index}}: ${shortPoint(node.share.P_net_j)}
+        </div>
+        <button data-toggle-malicious="${node.index}" class="mt-1 w-full py-1 px-1.5 rounded text-xs font-medium border ${
+          node.malicious
+            ? "border-red-500 bg-red-500 text-white"
+            : "border-[var(--border)] bg-[var(--card)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+        } transition">
+          ${node.malicious ? "⚠️ Malicious D_j" : "Honest DLEQ"}
+        </button>
+      `;
+
+      card.addEventListener("click", (e) => {
+        const malBtn = e.target.closest("[data-toggle-malicious]");
+        if (malBtn) {
+          e.stopPropagation();
+          node.malicious = !node.malicious;
+          if (node.malicious) node.selected = true;
+          renderNodes();
+          return;
+        }
+        node.selected = !node.selected;
+        renderNodes();
+      });
+
+      grid.appendChild(card);
+    });
+  }
+
+  // Run Threshold Deanonymization (Algorithm 4)
+  function runTrace() {
+    const sigId = Number(document.getElementById("trace-sig-select").value);
+    const box = document.getElementById("trace-result-box");
+    const rec = signatures.find((s) => s.id === sigId);
+    if (!rec) return;
+
+    const participating = nodeStates.filter((n) => n.selected);
+    if (participating.length < scheme.k) {
+      box.innerHTML = `
+        <div class="font-bold text-red-500">✗ Threshold Not Met (${participating.length} < k = ${scheme.k})</div>
+        <div class="text-[var(--muted-foreground)]">
+          At least $k = ${scheme.k}$ of $N = ${scheme.N}$ opener nodes must submit their verifiable decryption shares $(D_j, c_j, y_j)$.
+        </div>
+      `;
+      return;
+    }
+
+    const t0 = performance.now();
+    const dleqShares = [];
+    const omegaList = [];
+    const perNodeStatus = [];
+
+    for (const node of participating) {
+      const honestShare = scheme.computeDecryptionShare(rec.sigma, node.share);
+      let submittedShare = honestShare;
+      if (node.malicious) {
+        // Malicious node submits a forged D_fake != S_{net-j} * C_1
+        submittedShare = {
+          ...honestShare,
+          D_j: scheme.keygen().publicKey,
+        };
+      }
+      const isValidDleq = scheme.verifyDecryptionShare(rec.sigma, submittedShare);
+      perNodeStatus.push({
+        index: node.index,
+        valid: isValidDleq,
+      });
+      dleqShares.push(submittedShare);
+      omegaList.push(submittedShare.omega);
+    }
+
+    const recoveredPk = scheme.deanonymize(rec.sigma, dleqShares, omegaList);
+    const dt = (performance.now() - t0).toFixed(1);
+
+    const statusBadges = perNodeStatus
+      .map(
+        (st) =>
+          `<span class="px-1.5 py-0.5 rounded text-xs font-mono ${
+            st.valid ? "bg-emerald-500/20 text-emerald-400" : "bg-red-500/20 text-red-400 font-bold"
+          }">ω_${st.index}:${st.valid ? "DLEQ✓" : "DLEQ✗"}</span>`
+      )
+      .join(" ");
+
+    if (!recoveredPk) {
+      const badNodes = perNodeStatus.filter((s) => !s.valid).map((s) => `ω_${s.index}`);
+      box.innerHTML = `
+        <div class="flex items-center justify-between">
+          <span class="font-bold text-red-500">🛑 DEANONYMIZATION ABORTED (⊥) — Malicious Share Rejected!</span>
+          <span class="text-[var(--muted-foreground)]">${dt} ms</span>
+        </div>
+        <div class="flex flex-wrap gap-1 my-1">${statusBadges}</div>
+        <div class="text-[var(--muted-foreground)]">
+          Chaum–Pedersen NIZK DLEQ check $c_j == H(G, P_{\\text{net}-j}, C_1, D_j, U, U')$ failed for node(s) <strong>${badNodes.join(", ")}</strong>. Poisoning attack prevented (Lemma 6)!
+        </div>
+      `;
+      return;
+    }
+
+    const matchedUser = users.find((u) => u.kp.publicKey.equals(recoveredPk));
+    box.innerHTML = `
+      <div class="flex items-center justify-between">
+        <span class="font-bold text-emerald-500">🔓 SIGNER DEANONYMIZED: ${
+          matchedUser ? `${matchedUser.name} (P_${matchedUser.id})` : "Unknown Key"
+        }</span>
+        <span class="text-[var(--muted-foreground)]">${dt} ms (O(1) in ring size)</span>
+      </div>
+      <div class="flex flex-wrap gap-1 my-1">${statusBadges}</div>
+      <div class="text-[var(--muted-foreground)] font-mono text-xs">
+        Recovered P_s = C_2 - ∑ λ_j D_j = ${shortPoint(recoveredPk)}
+      </div>
+      <div class="text-[var(--muted-foreground)]">
+        All ${participating.length} DLEQ proofs verified. Extracted public key matches actual signer <strong>${rec.actualSigner.name}</strong>: <strong>${recoveredPk.equals(rec.actualSigner.kp.publicKey)}</strong>.
+      </div>
+    `;
+  }
+
+  document.getElementById("btn-run-trace").addEventListener("click", runTrace);
+
+  // Create 3 initial demo signatures so the user can immediately explore Verify, Link, and Trace
+  const initialRing = users.filter((u) => u.inRing);
+  createSignatureRecord("Consent_proof_V1", users[0], initialRing, "SID_PROJECT_A");
+  createSignatureRecord("Consent_proof_V2", users[0], initialRing, "SID_PROJECT_A");
+  createSignatureRecord("Consent_proof_V3", users[0], initialRing, "SID_PROJECT_B");
+
+  // Initial render
+  renderKeys();
+  renderNodes();
+  renderSignatures();
+  runVerify();
+  runLink();
+  runTrace();
+})();
+
+</script>
+</body>
+</html>
