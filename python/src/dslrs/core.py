@@ -51,7 +51,7 @@ class KeyPair:
 
 @dataclass
 class RingSignature:
-    """Represents a Deanonymizable Scope-Linked Ring Signature (DSLRS)."""
+    """Represents a Deanonymizable Scoped Linkable Ring Signature (DSLRS)."""
 
     I_scope: Point
     L: list[Point]
@@ -462,7 +462,7 @@ Deanonymize = trace
 
 
 class DSLRS(SystemParameters):
-    """High-level interface for Deanonymizable Scope-Linked Ring Signatures (DSLRS)."""
+    """High-level interface for Deanonymizable Scoped Linkable Ring Signatures (DSLRS)."""
 
     def __init__(
         self,

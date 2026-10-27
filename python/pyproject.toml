@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "dslrs"
 version = "0.1.0"
-description = "Deanonymizable Scope-Linked Ring Signature (DSLRS) on secp256k1"
+description = "Deanonymizable Scoped Linkable Ring Signatures (DSLRS) on secp256k1"
 readme = "README.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.9"

@@ -1,10 +1,10 @@
-# DSLRS — Deanonymizable Scope-Linked Ring Signature
+# DSLRS — Deanonymizable Scoped Linkable Ring Signatures
 
 [![CI](https://github.com/montassar-isbored/DSLRS-packages/actions/workflows/ci.yml/badge.svg)](https://github.com/montassar-isbored/DSLRS-packages/actions/workflows/ci.yml)
 [![Release](https://github.com/montassar-isbored/DSLRS-packages/actions/workflows/release.yml/badge.svg)](https://github.com/montassar-isbored/DSLRS-packages/actions/workflows/release.yml)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./LICENSE)
 
-**DSLRS** is a dual-target cryptographic library (Python & TypeScript/Node.js) implementing **Deanonymizable Scope-Linked Ring Signatures** over the `secp256k1` elliptic curve.
+**DSLRS** is a dual-target cryptographic library (Python & TypeScript/Node.js) implementing **Deanonymizable Scoped Linkable Ring Signatures** over the `secp256k1` elliptic curve.
 
 ---
 

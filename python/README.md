@@ -1,6 +1,6 @@
 # DSLRS (Python)
 
-**Deanonymizable Scope-Linked Ring Signature (DSLRS)** implemented on the `secp256k1` elliptic curve.
+**Deanonymizable Scoped Linkable Ring Signatures (DSLRS)** implemented on the `secp256k1` elliptic curve.
 
 DSLRS provides:
 - **Ring Anonymity**: Sign messages anonymously on behalf of a ring of public keys $L$.

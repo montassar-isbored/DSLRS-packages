@@ -1,6 +1,6 @@
 # DSLRS (TypeScript / Node.js)
 
-**Deanonymizable Scope-Linked Ring Signature (DSLRS)** implemented in TypeScript on the `secp256k1` elliptic curve via `@noble/curves`.
+**Deanonymizable Scoped Linkable Ring Signatures (DSLRS)** implemented in TypeScript on the `secp256k1` elliptic curve via `@noble/curves`.
 
 ## Features
 
