@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.pytest_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+ENV/
+
+# Node / TypeScript
+node_modules/
+npm/dist/
+*.tsbuildinfo
+*.tgz
+.npm
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

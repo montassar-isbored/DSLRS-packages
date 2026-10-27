@@ -1,0 +1,55 @@
+{
+  "name": "dslrs",
+  "version": "0.1.0",
+  "description": "Deanonymizable Scope-Linked Ring Signature (DSLRS) on secp256k1",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "cryptography",
+    "ring-signature",
+    "secp256k1",
+    "linkable-ring-signature",
+    "threshold-deanonymization",
+    "privacy",
+    "dslrs"
+  ],
+  "author": "Montassar",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/montassar-isbored/DSLRS-packages.git",
+    "directory": "npm"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@noble/curves": "^1.4.0",
+    "@noble/hashes": "^1.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "tsup": "^8.0.2",
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.0"
+  }
+}
