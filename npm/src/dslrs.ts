@@ -78,6 +78,18 @@ export function isECPoint(value: unknown): value is ECPoint {
   );
 }
 
+export function isValidPoint(value: unknown): value is ECPoint {
+  if (!isECPoint(value) || value.equals(INFINITY)) {
+    return false;
+  }
+  try {
+    value.assertValidity();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function pointToStr(pt: ECPoint): string {
   if (pt.equals(INFINITY)) {
     return "INFINITY";
@@ -154,13 +166,23 @@ export function hashToPoint(
 export interface Share {
   omega: bigint;
   S_net_j: bigint;
+  P_net_j: ECPoint;
+}
+
+export interface DecryptionShare {
+  omega: bigint;
+  P_net_j?: ECPoint;
+  D_j: ECPoint;
+  c_j: bigint;
+  y_j: bigint;
 }
 
 export function generateShares(
   S_net: bigint,
   N: number,
   k: number,
-  q: bigint = ORDER
+  q: bigint = ORDER,
+  G: ECPoint = GENERATOR
 ): Share[] {
   if (k < 1 || N < k) {
     throw new Error("Invalid threshold parameters: require 1 <= k <= N.");
@@ -179,10 +201,54 @@ export function generateShares(
       const term = (coefficients[power] * modPow(x, BigInt(power), q)) % q;
       y = (y + term) % q;
     }
-    shares.push({ omega: x, S_net_j: y });
+    const P_net_j = scalarMul(y, G, q);
+    shares.push({ omega: x, S_net_j: y, P_net_j });
   }
 
   return shares;
+}
+
+export function createDleqShare(
+  C_1: ECPoint,
+  omega: bigint,
+  S_net_j: bigint,
+  P_net_j?: ECPoint,
+  G: ECPoint = GENERATOR,
+  q: bigint = ORDER
+): DecryptionShare {
+  const pubShare = P_net_j ?? scalarMul(S_net_j, G, q);
+  const D_j = scalarMul(S_net_j, C_1, q);
+  const u = randomScalar(q);
+  const U = scalarMul(u, G, q);
+  const U_prime = scalarMul(u, C_1, q);
+  const c_j = hashFunc(q, G, pubShare, C_1, D_j, U, U_prime);
+  const y_j = mod(u + c_j * S_net_j, q);
+
+  return {
+    omega,
+    P_net_j: pubShare,
+    D_j,
+    c_j,
+    y_j,
+  };
+}
+
+export function verifyDleqShare(
+  C_1: ECPoint,
+  D_j: ECPoint,
+  c_j: bigint,
+  y_j: bigint,
+  P_net_j: ECPoint,
+  G: ECPoint = GENERATOR,
+  q: bigint = ORDER
+): boolean {
+  if (!isValidPoint(D_j) || !isValidPoint(P_net_j)) {
+    return false;
+  }
+  const U = subPoints(scalarMul(y_j, G, q), scalarMul(c_j, P_net_j, q), q);
+  const U_prime = subPoints(scalarMul(y_j, C_1, q), scalarMul(c_j, D_j, q), q);
+  const expectedCj = hashFunc(q, G, P_net_j, C_1, D_j, U, U_prime);
+  return c_j === expectedCj;
 }
 
 export function getSignatureSizeBytes(n: number): number {
@@ -308,6 +374,7 @@ export class SystemParameters {
   public enforceRegistry: boolean;
   public readonly S_net: bigint;
   public readonly P_net: ECPoint;
+  public nodePublicKeys: Map<bigint, ECPoint> = new Map();
 
   constructor(options: SystemParametersOptions = {}) {
     this.n_min = options.nMin ?? 3;
@@ -326,7 +393,10 @@ function findPointIndex(ring: ReadonlyArray<ECPoint>, target: ECPoint): number {
   return ring.findIndex((pt) => pt.equals(target));
 }
 
-function isRingInRegistry(ring: ReadonlyArray<ECPoint>, registry: ReadonlyArray<ReadonlyArray<ECPoint>>): boolean {
+function isRingInRegistry(
+  ring: ReadonlyArray<ECPoint>,
+  registry: ReadonlyArray<ReadonlyArray<ECPoint>>
+): boolean {
   return registry.some(
     (regRing) =>
       regRing.length === ring.length && regRing.every((pt, idx) => pt.equals(ring[idx]))
@@ -490,6 +560,10 @@ export function verify(
     return false;
   }
 
+  if (!isValidPoint(I_scope) || !isValidPoint(C_1) || !isValidPoint(C_2)) {
+    return false;
+  }
+
   const G = PP ? PP.G : GENERATOR;
   const q = PP ? PP.q : ORDER;
   const p = PP ? PP.p : FIELD_PRIME;
@@ -577,7 +651,6 @@ export function link(
     return false;
   }
 
-  // Support 2-argument call: link(sigma1, sigma2)
   if (m1 instanceof RingSignature) {
     const sig2 = m1;
     if (sigma1.SID !== sig2.SID) {
@@ -609,28 +682,66 @@ export function link(
 
 export function trace(
   sigma: RingSignature,
-  D_list: ReadonlyArray<ECPoint> | ReadonlyArray<Share>,
-  omega_list?: ReadonlyArray<bigint | number>,
-  q: bigint = ORDER
-): ECPoint {
+  D_list: ReadonlyArray<DecryptionShare> | ReadonlyArray<Share> | ReadonlyArray<ECPoint>,
+  omega_list?: ReadonlyArray<bigint | number> | SystemParameters,
+  q: bigint = ORDER,
+  PP?: SystemParameters
+): ECPoint | null {
   const { C_1, C_2 } = sigma;
   if (D_list.length === 0) {
     throw new Error("Non-empty decryption shares are required for tracing.");
   }
 
-  let dPoints: ECPoint[];
-  let omegas: bigint[];
+  if (omega_list instanceof SystemParameters) {
+    PP = omega_list;
+    omega_list = undefined;
+  }
 
-  if (!isECPoint(D_list[0])) {
-    const shareNodes = D_list as ReadonlyArray<Share>;
-    dPoints = shareNodes.map((node) => scalarMul(node.S_net_j, C_1, q));
-    omegas = shareNodes.map((node) => BigInt(node.omega));
-  } else {
+  const G = PP ? PP.G : GENERATOR;
+  const order = PP ? PP.q : q;
+  const nodePks = PP ? PP.nodePublicKeys : new Map<bigint, ECPoint>();
+
+  const dPoints: ECPoint[] = [];
+  const omegas: bigint[] = [];
+  const first = D_list[0];
+
+  if (isECPoint(first)) {
     if (!omega_list || omega_list.length !== D_list.length) {
       throw new Error("Matching omega_list is required when D_list contains curve points.");
     }
-    dPoints = D_list as ECPoint[];
-    omegas = omega_list.map((w) => BigInt(w));
+    for (let idx = 0; idx < D_list.length; idx++) {
+      dPoints.push(D_list[idx] as ECPoint);
+      omegas.push(BigInt(omega_list[idx]));
+    }
+  } else if ("D_j" in first) {
+    const dleqShares = D_list as ReadonlyArray<DecryptionShare>;
+    for (let idx = 0; idx < dleqShares.length; idx++) {
+      const item = dleqShares[idx];
+      const omegaJ = item.omega ?? (omega_list ? BigInt(omega_list[idx]) : undefined);
+      if (omegaJ === undefined) {
+        return null;
+      }
+      const pNetJ = item.P_net_j ?? nodePks.get(omegaJ);
+      if (!pNetJ) {
+        return null;
+      }
+      if (!verifyDleqShare(C_1, item.D_j, item.c_j, item.y_j, pNetJ, G, order)) {
+        return null;
+      }
+      dPoints.push(item.D_j);
+      omegas.push(omegaJ);
+    }
+  } else {
+    const shareNodes = D_list as ReadonlyArray<Share>;
+    for (const node of shareNodes) {
+      const pNetJ = node.P_net_j ?? scalarMul(node.S_net_j, G, order);
+      const dleq = createDleqShare(C_1, node.omega, node.S_net_j, pNetJ, G, order);
+      if (!verifyDleqShare(C_1, dleq.D_j, dleq.c_j, dleq.y_j, pNetJ, G, order)) {
+        return null;
+      }
+      dPoints.push(dleq.D_j);
+      omegas.push(BigInt(node.omega));
+    }
   }
 
   const k = dPoints.length;
@@ -641,22 +752,22 @@ export function trace(
     let den = 1n;
     for (let i = 0; i < k; i++) {
       if (i !== j) {
-        num = mod(num * omegas[i], q);
-        const diff = mod(omegas[i] - omegas[j], q);
-        den = mod(den * diff, q);
+        num = mod(num * omegas[i], order);
+        const diff = mod(omegas[i] - omegas[j], order);
+        den = mod(den * diff, order);
       }
     }
-    const denInv = modInv(den, q);
-    lam[j] = mod(num * denInv, q);
+    const denInv = modInv(den, order);
+    lam[j] = mod(num * denInv, order);
   }
 
   let V: ECPoint = INFINITY;
   for (let j = 0; j < k; j++) {
-    const term = scalarMul(lam[j], dPoints[j], q);
+    const term = scalarMul(lam[j], dPoints[j], order);
     V = V.equals(INFINITY) ? term : V.add(term);
   }
 
-  return subPoints(C_2, V, q);
+  return subPoints(C_2, V, order);
 }
 
 export const deanonymize = trace;
@@ -678,7 +789,10 @@ export class DSLRS extends SystemParameters {
     });
     this.N = options.nNodes ?? 12;
     this.k = options.threshold ?? 8;
-    this.shares = generateShares(this.S_net, this.N, this.k, this.q);
+    this.shares = generateShares(this.S_net, this.N, this.k, this.q, this.G);
+    for (const s of this.shares) {
+      this.nodePublicKeys.set(s.omega, s.P_net_j);
+    }
   }
 
   static keygen(): KeyPair {
@@ -725,37 +839,54 @@ export class DSLRS extends SystemParameters {
     return link(sigma1, m1, sigma2, m2, this);
   }
 
+  computeDecryptionShare(sigma: RingSignature, nodeShare: Share): DecryptionShare {
+    const pNetJ =
+      nodeShare.P_net_j ??
+      this.nodePublicKeys.get(nodeShare.omega) ??
+      scalarMul(nodeShare.S_net_j, this.G, this.q);
+    return createDleqShare(sigma.C_1, nodeShare.omega, nodeShare.S_net_j, pNetJ, this.G, this.q);
+  }
+
   computeDecryptionShares(
     sigma: RingSignature,
     respondingShares?: ReadonlyArray<Share>
-  ): { D_list: ECPoint[]; omega_list: bigint[] } {
+  ): { D_list: DecryptionShare[]; omega_list: bigint[] } {
     const nodes = respondingShares ?? this.shares.slice(0, this.k);
     const omega_list: bigint[] = [];
-    const D_list: ECPoint[] = [];
+    const D_list: DecryptionShare[] = [];
     for (const node of nodes) {
-      omega_list.push(node.omega);
-      D_list.push(scalarMul(node.S_net_j, sigma.C_1, this.q));
+      const shareObj = this.computeDecryptionShare(sigma, node);
+      omega_list.push(shareObj.omega);
+      D_list.push(shareObj);
     }
     return { D_list, omega_list };
   }
 
+  verifyDecryptionShare(sigma: RingSignature, share: DecryptionShare): boolean {
+    const pNetJ = share.P_net_j ?? this.nodePublicKeys.get(share.omega);
+    if (!pNetJ) {
+      return false;
+    }
+    return verifyDleqShare(sigma.C_1, share.D_j, share.c_j, share.y_j, pNetJ, this.G, this.q);
+  }
+
   trace(
     sigma: RingSignature,
-    D_list?: ReadonlyArray<ECPoint> | ReadonlyArray<Share>,
+    D_list?: ReadonlyArray<DecryptionShare> | ReadonlyArray<Share> | ReadonlyArray<ECPoint>,
     omega_list?: ReadonlyArray<bigint | number>
-  ): ECPoint {
+  ): ECPoint | null {
     if (!D_list) {
       const computed = this.computeDecryptionShares(sigma);
-      return trace(sigma, computed.D_list, computed.omega_list, this.q);
+      return trace(sigma, computed.D_list, computed.omega_list, this.q, this);
     }
-    return trace(sigma, D_list, omega_list, this.q);
+    return trace(sigma, D_list, omega_list, this.q, this);
   }
 
   deanonymize(
     sigma: RingSignature,
-    D_list?: ReadonlyArray<ECPoint> | ReadonlyArray<Share>,
+    D_list?: ReadonlyArray<DecryptionShare> | ReadonlyArray<Share> | ReadonlyArray<ECPoint>,
     omega_list?: ReadonlyArray<bigint | number>
-  ): ECPoint {
+  ): ECPoint | null {
     return this.trace(sigma, D_list, omega_list);
   }
 

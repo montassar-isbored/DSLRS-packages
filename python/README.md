@@ -5,7 +5,7 @@
 DSLRS provides:
 - **Ring Anonymity**: Sign messages anonymously on behalf of a ring of public keys $L$.
 - **Scope-Bound Linkability**: Signatures produced by the same signer under the same Scope Identifier (`SID`) share a deterministic scope tag $I_{\text{scope}} = S_s \cdot H_p(P_s, \text{SID})$, enabling double-signing detection within a scope while remaining unlinkable across different scopes.
-- **Threshold Traceability (Deanonymization)**: A $(k, N)$ Shamir secret-shared authority network can collaboratively recover the signer's public key $P_s$ via Lagrange interpolation in the exponent.
+- **Threshold Traceability with Verifiable Decryption Shares (DLEQ)**: A $(k, N)$ Shamir secret-shared authority network collaboratively recovers the signer's public key $P_s$ via Lagrange interpolation in the exponent, with Chaum–Pedersen NIZK proofs $(D_j, c_j, y_j)$ protecting against malicious deanonymization nodes.
 
 ## Installation
 

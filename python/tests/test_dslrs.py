@@ -4,8 +4,15 @@ import random
 
 import dslrs
 from dslrs import DSLRS, KeyPair, RingSignature
-from dslrs.core import SystemParameters, deanonymize, keygen, link, sign, trace, verify
-from dslrs.utils import generate_shares, get_signature_size_bytes, hash_to_point, point_to_str
+from dslrs.core import DecryptionShare, SystemParameters, deanonymize, keygen, link, sign, trace, verify
+from dslrs.utils import (
+    create_dleq_share,
+    generate_shares,
+    get_signature_size_bytes,
+    hash_to_point,
+    point_to_str,
+    verify_dleq_share,
+)
 
 
 def test_exports() -> None:
@@ -102,32 +109,60 @@ def test_linkability_same_and_different_scopes() -> None:
     assert scheme.link(sig_a1, sig_b1) is False
 
 
-def test_threshold_trace_deanonymize() -> None:
+def test_verifiable_decryption_shares_dleq() -> None:
     scheme = DSLRS(n_nodes=8, threshold=5)
     keypairs = [scheme.keygen() for _ in range(6)]
     ring = [kp.public_key for kp in keypairs]
 
-    signer_idx = 3
-    signer = keypairs[signer_idx]
+    signer = keypairs[3]
     sig = scheme.sign("Audit_Payload", signer, ring, "SID_PROJECT_A")
     assert sig is not None
 
-    # Sample k-of-N shares randomly
+    # Sample k-of-N shares randomly and generate DLEQ verifiable decryption shares
     sampled_shares = random.sample(scheme.shares, scheme.k)
-    D_list, omega_list = scheme.compute_decryption_shares(sig, sampled_shares)
+    dleq_shares, omega_list = scheme.compute_decryption_shares(sig, sampled_shares)
 
-    recovered_pk = scheme.trace(sig, D_list, omega_list)
+    for ds in dleq_shares:
+        assert isinstance(ds, DecryptionShare)
+        assert scheme.verify_decryption_share(sig, ds) is True
+        assert verify_dleq_share(sig.C_1, ds.D_j, ds.c_j, ds.y_j, ds.P_net_j) is True
+
+    recovered_pk = scheme.trace(sig, dleq_shares, omega_list)
     assert recovered_pk == signer.public_key
     assert point_to_str(recovered_pk) == point_to_str(signer.public_key)
 
-    # Also test convenience 1-argument trace() and deanonymize()
+    # Also test convenience 1-argument trace() and 2-argument deanonymize()
     assert scheme.trace(sig) == signer.public_key
-    assert scheme.deanonymize(sig, sampled_shares) == signer.public_key
+    assert scheme.deanonymize(sig, dleq_shares) == signer.public_key
+
+    # Malicious node test (Lemma 6): corrupting D_j, c_j, or y_j must be rejected (returns None)
+    corrupted_D = list(dleq_shares)
+    fake_point = scheme.keygen().public_key
+    corrupted_D[0] = DecryptionShare(
+        omega=dleq_shares[0].omega,
+        D_j=fake_point,
+        c_j=dleq_shares[0].c_j,
+        y_j=dleq_shares[0].y_j,
+        P_net_j=dleq_shares[0].P_net_j,
+    )
+    assert scheme.verify_decryption_share(sig, corrupted_D[0]) is False
+    assert scheme.deanonymize(sig, corrupted_D, omega_list) is None
+
+    corrupted_y = list(dleq_shares)
+    corrupted_y[0] = DecryptionShare(
+        omega=dleq_shares[0].omega,
+        D_j=dleq_shares[0].D_j,
+        c_j=dleq_shares[0].c_j,
+        y_j=(dleq_shares[0].y_j + 1) % scheme.q,
+        P_net_j=dleq_shares[0].P_net_j,
+    )
+    assert scheme.deanonymize(sig, corrupted_y, omega_list) is None
 
 
 def test_functional_api_compatibility() -> None:
     pp = SystemParameters()
-    all_shares = generate_shares(pp.S_net, 6, 4, pp.q)
+    all_shares = generate_shares(pp.S_net, 6, 4, pp.q, pp.G)
+    pp.node_public_keys = {s["omega"]: s["P_net_j"] for s in all_shares}
     keys = [keygen(pp) for _ in range(4)]
     ring = [kp.public_key for kp in keys]
     pp.L_registry.append(ring)
@@ -144,11 +179,12 @@ def test_functional_api_compatibility() -> None:
     assert link(sigma1, m1, sigma2, m2, pp) == 1
 
     responding = all_shares[:4]
-    omega_list = [node["omega"] for node in responding]
-    D_list = [node["S_net_j"] * sigma1[4] for node in responding]
-
-    extracted = deanonymize(sigma1, D_list, omega_list, pp.q)
-    assert extracted == trace(sigma1, D_list, omega_list, pp.q)
+    dleq_list = [
+        create_dleq_share(sigma1.C_1, node["omega"], node["S_net_j"], node["P_net_j"], pp.G, pp.q)
+        for node in responding
+    ]
+    extracted = deanonymize(sigma1, dleq_list, pp)
+    assert extracted == trace(sigma1, dleq_list, pp)
     assert extracted == keys[1].public_key
 
 

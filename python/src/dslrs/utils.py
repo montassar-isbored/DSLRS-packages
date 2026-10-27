@@ -24,6 +24,20 @@ def point_to_str(pt: Point) -> str:
     return f"{x_val},{y_val}"
 
 
+def is_valid_point(pt: Any, curve: CurveFp = CURVE) -> bool:
+    """Check whether pt is a valid non-infinity point on the elliptic curve group G."""
+    if pt is None or pt == INFINITY:
+        return False
+    if not (hasattr(pt, "x") and hasattr(pt, "y")):
+        return False
+    try:
+        x_val = pt.x() if callable(pt.x) else pt.x
+        y_val = pt.y() if callable(pt.y) else pt.y
+        return bool(curve.contains_point(x_val, y_val))
+    except Exception:
+        return False
+
+
 def sub_points(P1: Point, P2: Point, q: int = ORDER) -> Point:
     """Compute elliptic curve point subtraction P1 - P2 = P1 + (q - 1) * P2."""
     if P2 == INFINITY:
@@ -93,22 +107,81 @@ def generate_shares(
     N: int,
     k: int,
     q: int = ORDER,
-) -> list[dict[str, int]]:
-    """Generate (k, N) Shamir secret shares for the network tracing secret key S_net."""
+    G: Point = GENERATOR,
+) -> list[dict[str, Any]]:
+    """Generate (k, N) Shamir secret shares {omega_j, S_{net-j}, P_{net-j}} for the network key."""
     if k < 1 or N < k:
         raise ValueError("Invalid threshold parameters: require 1 <= k <= N.")
 
     coefficients = [S_net % q] + [secrets.randbelow(q - 1) + 1 for _ in range(k - 1)]
-    shares: list[dict[str, int]] = []
+    shares: list[dict[str, Any]] = []
 
     for j in range(1, N + 1):
         x = j
         y = 0
         for power, coeff in enumerate(coefficients):
             y = (y + coeff * pow(x, power, q)) % q
-        shares.append({"omega": x, "S_net_j": y})
+        P_net_j = y * G
+        shares.append({"omega": x, "S_net_j": y, "P_net_j": P_net_j})
 
     return shares
+
+
+def create_dleq_share(
+    C_1: Point,
+    omega_j: int,
+    S_net_j: int,
+    P_net_j: Point | None = None,
+    G: Point = GENERATOR,
+    q: int = ORDER,
+) -> dict[str, Any]:
+    """
+    Compute a verifiable decryption share (D_j, c_j, y_j) with a Chaum-Pedersen NIZK DLEQ proof:
+      1. D_j = S_{net-j} * C_1
+      2. u <- Z_q^*
+      3. c_j = H(G, P_{net-j}, C_1, D_j, u * G, u * C_1)
+      4. y_j = u + c_j * S_{net-j} (mod q)
+    """
+    if P_net_j is None:
+        P_net_j = S_net_j * G
+
+    D_j = S_net_j * C_1
+    u = secrets.randbelow(q - 1) + 1
+    U = u * G
+    U_prime = u * C_1
+    c_j = hash_func(q, G, P_net_j, C_1, D_j, U, U_prime)
+    y_j = (u + c_j * S_net_j) % q
+
+    return {
+        "omega": omega_j,
+        "P_net_j": P_net_j,
+        "D_j": D_j,
+        "c_j": c_j,
+        "y_j": y_j,
+    }
+
+
+def verify_dleq_share(
+    C_1: Point,
+    D_j: Point,
+    c_j: int,
+    y_j: int,
+    P_net_j: Point,
+    G: Point = GENERATOR,
+    q: int = ORDER,
+) -> bool:
+    """
+    Verify a node's Chaum-Pedersen NIZK DLEQ proof (c_j, y_j) for decryption share D_j:
+      1. U  = y_j * G - c_j * P_{net-j}
+      2. U' = y_j * C_1 - c_j * D_j
+      3. Check c_j == H(G, P_{net-j}, C_1, D_j, U, U')
+    """
+    if not is_valid_point(D_j) or not is_valid_point(P_net_j):
+        return False
+    U = sub_points(y_j * G, c_j * P_net_j, q)
+    U_prime = sub_points(y_j * C_1, c_j * D_j, q)
+    expected_c_j = hash_func(q, G, P_net_j, C_1, D_j, U, U_prime)
+    return bool(c_j == expected_c_j)
 
 
 def get_signature_size_bytes(n: int) -> int:

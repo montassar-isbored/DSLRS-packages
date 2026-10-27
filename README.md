@@ -47,7 +47,7 @@ DSLRS consists of five core operations over `secp256k1` (generator $G$, prime or
 2. **Sign**: Given message $m$, signer secret $S_s$, ring $L = \{P_0, \dots, P_{n-1}\}$, and Scope ID $\text{SID}$, computes a scope-bound tag $I_{\text{scope}} = S_s \cdot H_p(P_s, \text{SID})$, an ElGamal encryption $(C_1, C_2)$ of $P_s$ under $P_{\text{net}}$, and a non-interactive ring proof $\sigma = (I_{\text{scope}}, L, \text{SID}, P_{\text{net}}, C_1, C_2, ch_0, \mathbf{x}, \mathbf{z})$.
 3. **Verify**: Verifies the ring equations around the challenge loop $ch_0, \dots, ch_{n-1}$ in $O(n)$ curve operations without revealing which ring member signed.
 4. **Link**: Given two valid signatures $\sigma_1, \sigma_2$ under the same $\text{SID}$, checks whether $\sigma_1.I_{\text{scope}} = \sigma_2.I_{\text{scope}}$.
-5. **Trace (Deanonymize)**: Given $k$-of-$N$ partial decryption shares $D_j = S_{\text{net},j} \cdot C_1$, reconstructs $V = \sum_{j=1}^k \lambda_j D_j$ via Lagrange interpolation in the exponent and recovers $P_s = C_2 - V$.
+5. **Trace (Deanonymize)**: Each of $k$-of-$N$ authority nodes computes a partial decryption share $D_j = S_{\text{net}-j} \cdot C_1$ along with a Chaum–Pedersen NIZK proof of Discrete-Logarithm Equivalence (DLEQ) $(c_j, y_j)$ where $c_j = H(G, P_{\text{net}-j}, C_1, D_j, u \cdot G, u \cdot C_1)$ and $y_j = u + c_j \cdot S_{\text{net}-j} \pmod q$. After verifying each share's DLEQ proof against $P_{\text{net}-j}$, `Deanonymize` reconstructs $V = \sum_{j=1}^k \lambda_j D_j$ via Lagrange interpolation in the exponent and recovers $P_s = C_2 - V$. Any malformed share from a malicious node is rejected ($\perp$).
 
 ---
 

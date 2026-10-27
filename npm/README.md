@@ -7,7 +7,7 @@
 - **Dual ESM & CommonJS Support**: Ships with `.js` (ESM), `.cjs` (CommonJS), and `.d.ts` TypeScript declarations.
 - **Ring Anonymity**: Sign messages anonymously within a ring of public keys $L$.
 - **Scope-Bound Linkability**: Signatures from the same signer under the same `SID` share a scope tag $I_{\text{scope}}$, enabling linkability within a scope while preserving unlinkability across different scopes.
-- **Threshold Traceability (Deanonymization)**: A $(k, N)$ Shamir secret-shared network can collaboratively recover the signer's public key $P_s$.
+- **Threshold Traceability with Verifiable Decryption Shares (DLEQ)**: A $(k, N)$ Shamir secret-shared network collaboratively recovers the signer's public key $P_s$, with Chaum–Pedersen NIZK proofs $(D_j, c_j, y_j)$ rejecting malicious decryption shares.
 
 ## Installation
 

@@ -4,6 +4,7 @@ import {
   KeyPair,
   RingSignature,
   SystemParameters,
+  createDleqShare,
   deanonymize,
   generateShares,
   getSignatureSizeBytes,
@@ -15,6 +16,7 @@ import {
   sign,
   trace,
   verify,
+  verifyDleqShare,
 } from "../src/index.js";
 
 describe("DSLRS TypeScript SDK", () => {
@@ -100,7 +102,7 @@ describe("DSLRS TypeScript SDK", () => {
     expect(scheme.link(sigA1, sigB1)).toBe(false);
   });
 
-  it("traces (deanonymizes) the signer via k-of-N threshold secret shares", () => {
+  it("verifies Chaum-Pedersen DLEQ decryption shares and rejects malicious shares", () => {
     const scheme = new DSLRS({ nNodes: 8, threshold: 5 });
     const keys = Array.from({ length: 6 }, () => scheme.keygen());
     const ring = keys.map((k) => k.publicKey);
@@ -112,18 +114,36 @@ describe("DSLRS TypeScript SDK", () => {
     const respondingNodes = scheme.shares.slice(2, 7); // 5 of 8 shares
     const { D_list, omega_list } = scheme.computeDecryptionShares(sig!, respondingNodes);
 
+    for (const ds of D_list) {
+      expect(scheme.verifyDecryptionShare(sig!, ds)).toBe(true);
+      expect(verifyDleqShare(sig!.C_1, ds.D_j, ds.c_j, ds.y_j, ds.P_net_j!)).toBe(true);
+    }
+
     const recoveredPk = scheme.trace(sig!, D_list, omega_list);
-    expect(recoveredPk.equals(signer.publicKey)).toBe(true);
-    expect(pointToStr(recoveredPk)).toBe(pointToStr(signer.publicKey));
+    expect(recoveredPk).not.toBeNull();
+    expect(recoveredPk!.equals(signer.publicKey)).toBe(true);
+    expect(pointToStr(recoveredPk!)).toBe(pointToStr(signer.publicKey));
 
     // Convenience overloads
-    expect(scheme.trace(sig!).equals(signer.publicKey)).toBe(true);
-    expect(scheme.deanonymize(sig!, respondingNodes).equals(signer.publicKey)).toBe(true);
+    expect(scheme.trace(sig!)!.equals(signer.publicKey)).toBe(true);
+    expect(scheme.deanonymize(sig!, D_list)!.equals(signer.publicKey)).toBe(true);
+
+    // Malicious node submits forged D_j -> rejected (returns null)
+    const corrupted = [...D_list];
+    corrupted[0] = {
+      ...D_list[0],
+      D_j: scheme.keygen().publicKey,
+    };
+    expect(scheme.verifyDecryptionShare(sig!, corrupted[0])).toBe(false);
+    expect(scheme.deanonymize(sig!, corrupted, omega_list)).toBeNull();
   });
 
   it("supports functional API calls (keygen, sign, verify, link, trace, deanonymize)", () => {
     const pp = new SystemParameters();
-    const allShares = generateShares(pp.S_net, 6, 4, pp.q);
+    const allShares = generateShares(pp.S_net, 6, 4, pp.q, pp.G);
+    for (const s of allShares) {
+      pp.nodePublicKeys.set(s.omega, s.P_net_j);
+    }
     const keys = Array.from({ length: 4 }, () => keygen(pp));
     const ring = keys.map((k) => k.publicKey);
     pp.L_registry.push(ring);
@@ -138,12 +158,14 @@ describe("DSLRS TypeScript SDK", () => {
     expect(link(sigma1, "Doc_1", sigma2, "Doc_2", pp)).toBe(true);
 
     const responding = allShares.slice(0, 4);
-    const omegaList = responding.map((n) => n.omega);
-    const dList = responding.map((n) => scalarMul(n.S_net_j, sigma1!.C_1, pp.q));
+    const dleqShares = responding.map((n) =>
+      createDleqShare(sigma1!.C_1, n.omega, n.S_net_j, n.P_net_j, pp.G, pp.q)
+    );
 
-    const extracted = deanonymize(sigma1!, dList, omegaList, pp.q);
-    expect(extracted.equals(trace(sigma1!, dList, omegaList, pp.q))).toBe(true);
-    expect(extracted.equals(keys[1].publicKey)).toBe(true);
+    const extracted = deanonymize(sigma1!, dleqShares, pp);
+    expect(extracted).not.toBeNull();
+    expect(extracted!.equals(trace(sigma1!, dleqShares, pp)!)).toBe(true);
+    expect(extracted!.equals(keys[1].publicKey)).toBe(true);
   });
 
   it("maps public keys and SIDs deterministically via hashToPoint", () => {

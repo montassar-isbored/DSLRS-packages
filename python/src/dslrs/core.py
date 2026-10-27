@@ -13,12 +13,15 @@ from .utils import (
     FIELD_PRIME,
     GENERATOR,
     ORDER,
+    create_dleq_share,
     generate_shares,
     get_signature_size_bytes,
     hash_func,
     hash_to_point,
+    is_valid_point,
     point_to_str,
     sub_points,
+    verify_dleq_share,
 )
 
 
@@ -47,6 +50,42 @@ class KeyPair:
 
     def __getitem__(self, index: int) -> Any:
         return (self.secret_key, self.public_key)[index]
+
+
+@dataclass(frozen=True)
+class DecryptionShare:
+    """
+    Represents a verifiable threshold decryption share (D_j, c_j, y_j) with a
+    Chaum-Pedersen Discrete-Logarithm Equivalence (DLEQ) NIZK proof.
+    """
+
+    omega: int
+    D_j: Point
+    c_j: int
+    y_j: int
+    P_net_j: Point | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "omega": self.omega,
+            "D_j": self.D_j,
+            "c_j": self.c_j,
+            "y_j": self.y_j,
+            "P_net_j": self.P_net_j,
+        }
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return self.to_dict().get(key, default)
+
+    def __getitem__(self, key: str | int) -> Any:
+        if isinstance(key, int):
+            return (self.D_j, self.c_j, self.y_j, self.omega, self.P_net_j)[key]
+        return self.to_dict()[key]
+
+    def __iter__(self) -> Iterator[Any]:
+        yield self.D_j
+        yield self.c_j
+        yield self.y_j
 
 
 @dataclass
@@ -152,7 +191,7 @@ class RingSignature:
 
 
 class SystemParameters:
-    """Public and authority system parameters for DSLRS."""
+    """Public and authority system parameters PP = (PP1, PP2) for DSLRS."""
 
     def __init__(
         self,
@@ -175,6 +214,7 @@ class SystemParameters:
 
         self.S_net: int = s_net if s_net is not None else (secrets.randbelow(self.q - 1) + 1)
         self.P_net: Point = self.S_net * self.G
+        self.node_public_keys: dict[int, Point] = {}
 
 
 def _normalize_ring(ring: Sequence[Point | KeyPair]) -> list[Point]:
@@ -197,7 +237,7 @@ def sign(
     SID: str,
     PP: SystemParameters | DSLRS | None = None,
 ) -> RingSignature | None:
-    """Algorithm 1 (Sign): Generate a scope-linked, threshold-deanonymizable ring signature."""
+    """Algorithm 1 (Sign): Generate a scoped linkable, threshold-deanonymizable ring signature."""
     if PP is None:
         PP = SystemParameters(enforce_registry=False)
 
@@ -310,6 +350,14 @@ def verify(
             return False
         curve, G, q, p, a, b = CURVE, GENERATOR, ORDER, FIELD_PRIME, CURVE_A, CURVE_B
 
+    # Algorithm 2 line 5: check I_scope, C_1, C_2 in G
+    if not (
+        is_valid_point(I_scope, curve)
+        and is_valid_point(C_1, curve)
+        and is_valid_point(C_2, curve)
+    ):
+        return False
+
     n = len(L)
     if len(x) != n or len(z) != n:
         return False
@@ -396,37 +444,95 @@ def link(
 def trace(
     sigma: RingSignature | Sequence[Any],
     D_list: Sequence[Any] | None = None,
-    omega_list: Sequence[int] | None = None,
+    omega_list: Sequence[int] | SystemParameters | DSLRS | None = None,
     q: int = ORDER,
-) -> Point:
-    """Algorithm 4 (Trace / Deanonymize): Recover the signer's public key P_s via Lagrange interpolation."""
+    PP: SystemParameters | DSLRS | None = None,
+) -> Point | None:
+    """
+    Algorithm 4 (Deanonymize / Trace):
+    Verify Chaum-Pedersen DLEQ proofs {(D_j, c_j, y_j)}_{j=1}^k against node public keys P_{net-j}
+    and recover the signer's public key P_s via Lagrange interpolation in the exponent.
+    Returns None (bottom) if any node submits an invalid decryption share D_j.
+    """
     sig_obj = RingSignature.from_tuple(sigma)
     C_1 = sig_obj.C_1
     C_2 = sig_obj.C_2
 
-    if D_list is None:
-        raise ValueError("Decryption shares (D_list or node shares) must be provided for tracing.")
+    if isinstance(omega_list, SystemParameters):
+        PP = omega_list
+        omega_list = None
 
-    # Allow passing list of share dicts [{'omega': ..., 'S_net_j': ...}] directly as D_list
-    if len(D_list) > 0 and isinstance(D_list[0], dict):
-        share_dicts = D_list
-        computed_D: list[Point] = []
-        computed_omega: list[int] = []
-        for node in share_dicts:
-            computed_omega.append(int(node["omega"]))
-            computed_D.append(int(node["S_net_j"]) * C_1)
-        D_points = computed_D
-        omegas = computed_omega
+    if PP is not None:
+        q = PP.q
+        G = PP.G
+        node_pks = getattr(PP, "node_public_keys", {})
     else:
-        if omega_list is None:
+        G = GENERATOR
+        node_pks = {}
+
+    if D_list is None or len(D_list) == 0:
+        raise ValueError("Decryption shares must be provided for deanonymization.")
+
+    first = D_list[0]
+    D_points: list[Point] = []
+    omegas: list[int] = []
+
+    # Case 1: Verifiable DecryptionShare objects or dicts containing (D_j, c_j, y_j)
+    if isinstance(first, DecryptionShare) or (isinstance(first, dict) and "D_j" in first):
+        for idx, item in enumerate(D_list):
+            D_j = item["D_j"]
+            c_j = int(item["c_j"])
+            y_j = int(item["y_j"])
+            omega_j = (
+                int(item["omega"])
+                if item.get("omega") is not None
+                else int(omega_list[idx])  # type: ignore[index]
+            )
+            P_net_j = item.get("P_net_j") if isinstance(item, dict) else item.P_net_j
+            if P_net_j is None:
+                P_net_j = node_pks.get(omega_j)
+            if P_net_j is None:
+                return None
+
+            if not verify_dleq_share(C_1, D_j, c_j, y_j, P_net_j, G, q):
+                return None
+
+            D_points.append(D_j)
+            omegas.append(omega_j)
+
+    # Case 2: 3-tuples (D_j, c_j, y_j) as in Algorithm 4
+    elif isinstance(first, tuple) and len(first) == 3 and hasattr(first[0], "x"):
+        if omega_list is None or len(omega_list) != len(D_list):
+            raise ValueError("omega_list is required when passing (D_j, c_j, y_j) tuples.")
+        for idx, tup in enumerate(D_list):
+            D_j, c_j, y_j = tup[0], int(tup[1]), int(tup[2])
+            omega_j = int(omega_list[idx])
+            P_net_j = node_pks.get(omega_j)
+            if P_net_j is None or not verify_dleq_share(C_1, D_j, c_j, y_j, P_net_j, G, q):
+                return None
+            D_points.append(D_j)
+            omegas.append(omega_j)
+
+    # Case 3: Node secret share dicts {'omega': ..., 'S_net_j': ...} -> generate & verify DLEQ shares
+    elif isinstance(first, dict) and "S_net_j" in first:
+        for node in D_list:
+            omega_j = int(node["omega"])
+            S_net_j = int(node["S_net_j"])
+            P_net_j = node.get("P_net_j") or (S_net_j * G)
+            dleq = create_dleq_share(C_1, omega_j, S_net_j, P_net_j, G, q)
+            if not verify_dleq_share(C_1, dleq["D_j"], dleq["c_j"], dleq["y_j"], P_net_j, G, q):
+                return None
+            D_points.append(dleq["D_j"])
+            omegas.append(omega_j)
+
+    # Case 4: Legacy raw EC points D_list + omega_list
+    else:
+        if omega_list is None or len(omega_list) != len(D_list):
             raise ValueError("omega_list must be provided when D_list contains curve points.")
         D_points = list(D_list)
-        omegas = list(omega_list)
+        omegas = [int(w) for w in omega_list]
 
     k = len(D_points)
-    if k == 0 or len(omegas) != k:
-        raise ValueError("Non-empty matching D_list and omega_list are required.")
-
     lam = [0] * k
     for j in range(k):
         num = 1
@@ -481,7 +587,8 @@ class DSLRS(SystemParameters):
         )
         self.N: int = n_nodes
         self.k: int = threshold
-        self.shares: list[dict[str, int]] = generate_shares(self.S_net, self.N, self.k, self.q)
+        self.shares: list[dict[str, Any]] = generate_shares(self.S_net, self.N, self.k, self.q, self.G)
+        self.node_public_keys = {int(s["omega"]): s["P_net_j"] for s in self.shares}
 
     @staticmethod
     def keygen() -> KeyPair:
@@ -528,40 +635,88 @@ class DSLRS(SystemParameters):
         """Check if two signatures are linked under the same scope."""
         return link(sigma_1, m_1, sigma_2, m_2, self)
 
+    def compute_decryption_share(
+        self,
+        sigma: RingSignature | Sequence[Any],
+        node_share: dict[str, Any],
+    ) -> DecryptionShare:
+        """
+        Compute a single node's verifiable decryption share (D_j, c_j, y_j)
+        with its Chaum-Pedersen DLEQ proof of correctness.
+        """
+        sig_obj = RingSignature.from_tuple(sigma)
+        omega_j = int(node_share["omega"])
+        S_net_j = int(node_share["S_net_j"])
+        P_net_j = node_share.get("P_net_j") or self.node_public_keys.get(omega_j) or (S_net_j * self.G)
+        dleq = create_dleq_share(sig_obj.C_1, omega_j, S_net_j, P_net_j, self.G, self.q)
+        return DecryptionShare(
+            omega=omega_j,
+            D_j=dleq["D_j"],
+            c_j=dleq["c_j"],
+            y_j=dleq["y_j"],
+            P_net_j=P_net_j,
+        )
+
     def compute_decryption_shares(
         self,
         sigma: RingSignature | Sequence[Any],
-        responding_shares: Sequence[dict[str, int]] | None = None,
-    ) -> tuple[list[Point], list[int]]:
-        """Compute partial ElGamal decryption points D_j = S_{net,j} * C_1 for k authority nodes."""
-        sig_obj = RingSignature.from_tuple(sigma)
+        responding_shares: Sequence[dict[str, Any]] | None = None,
+    ) -> tuple[list[DecryptionShare], list[int]]:
+        """
+        Compute verifiable decryption shares {(D_j, c_j, y_j)}_{j=1}^k with Chaum-Pedersen
+        DLEQ proofs for k authority nodes.
+        """
         nodes = list(responding_shares) if responding_shares is not None else self.shares[: self.k]
         omega_list: list[int] = []
-        D_list: list[Point] = []
+        D_list: list[DecryptionShare] = []
         for node in nodes:
-            omega_list.append(int(node["omega"]))
-            D_list.append(int(node["S_net_j"]) * sig_obj.C_1)
+            share_obj = self.compute_decryption_share(sigma, node)
+            omega_list.append(share_obj.omega)
+            D_list.append(share_obj)
         return D_list, omega_list
+
+    def verify_decryption_share(
+        self,
+        sigma: RingSignature | Sequence[Any],
+        share: DecryptionShare | dict[str, Any],
+    ) -> bool:
+        """Verify the Chaum-Pedersen DLEQ proof (c_j, y_j) of a single decryption share D_j."""
+        sig_obj = RingSignature.from_tuple(sigma)
+        D_j = share["D_j"]
+        c_j = int(share["c_j"])
+        y_j = int(share["y_j"])
+        omega_j = int(share["omega"])
+        P_net_j = (
+            (share.get("P_net_j") if isinstance(share, dict) else share.P_net_j)
+            or self.node_public_keys.get(omega_j)
+        )
+        if P_net_j is None:
+            return False
+        return verify_dleq_share(sig_obj.C_1, D_j, c_j, y_j, P_net_j, self.G, self.q)
 
     def trace(
         self,
         sigma: RingSignature | Sequence[Any],
         D_list: Sequence[Any] | None = None,
         omega_list: Sequence[int] | None = None,
-    ) -> Point:
-        """Recover the signer's public key P_s using threshold decryption shares."""
+    ) -> Point | None:
+        """
+        Algorithm 4 (Deanonymize): Verify each node's Chaum-Pedersen DLEQ proof (c_j, y_j)
+        and recover the signer's public key P_s via Lagrange interpolation.
+        Returns None if any share fails verification.
+        """
         if D_list is None and omega_list is None:
-            D_pts, omegas = self.compute_decryption_shares(sigma)
-            return trace(sigma, D_pts, omegas, self.q)
-        return trace(sigma, D_list, omega_list, self.q)
+            D_shares, omegas = self.compute_decryption_shares(sigma)
+            return trace(sigma, D_shares, omegas, self.q, self)
+        return trace(sigma, D_list, omega_list, self.q, self)
 
     def deanonymize(
         self,
         sigma: RingSignature | Sequence[Any],
         D_list: Sequence[Any] | None = None,
         omega_list: Sequence[int] | None = None,
-    ) -> Point:
-        """Alias for trace()."""
+    ) -> Point | None:
+        """Algorithm 4 (Deanonymize): Alias for trace()."""
         return self.trace(sigma, D_list, omega_list)
 
     @staticmethod
