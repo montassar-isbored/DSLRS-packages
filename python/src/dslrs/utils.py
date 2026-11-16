@@ -43,10 +43,10 @@ def is_valid_point(pt: Any, curve: CurveFp = CURVE) -> bool:
 
 
 def sub_points(P1: Point, P2: Point, q: int = ORDER) -> Point:
-    """Compute elliptic curve point subtraction P1 - P2 = P1 + (-P2) in O(1) field ops."""
+    """Compute elliptic curve point subtraction P1 - P2 = P1 + (q - 1) * P2."""
     if P2 == INFINITY:
         return P1
-    neg_P2 = -P2
+    neg_P2 = (q - 1) * P2
     if P1 == INFINITY:
         return neg_P2
     return P1 + neg_P2
@@ -136,7 +136,7 @@ def hash_to_point(
 ) -> Point:
     """
     Deterministically map a public key point P and scope ID (SID) to a curve point H_p(P, SID)
-    using Try-and-Increment with Tonelli-Shanks modular square root and Jacobi projective points.
+    using Try-and-Increment with the Tonelli-Shanks modular square root algorithm.
     """
     ctr = 0
     base_hasher = hashlib.sha256()
@@ -153,7 +153,7 @@ def hash_to_point(
         y = tonelli_shanks(y_sq, p)
         if y is not None and y != 0:
             try:
-                return PointJacobi.from_affine(Point(curve, x_cand, y))
+                return Point(curve, x_cand, y)
             except ValueError:
                 pass
         ctr += 1
