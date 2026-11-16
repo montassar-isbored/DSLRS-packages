@@ -5,7 +5,7 @@ import secrets
 from typing import Any
 
 from ecdsa import SECP256k1
-from ecdsa.ellipticcurve import INFINITY, CurveFp, Point
+from ecdsa.ellipticcurve import INFINITY, CurveFp, Point, PointJacobi
 
 CURVE: CurveFp = SECP256k1.curve
 GENERATOR: Point = SECP256k1.generator
@@ -13,6 +13,7 @@ ORDER: int = SECP256k1.order
 FIELD_PRIME: int = CURVE.p()
 CURVE_A: int = CURVE.a()
 CURVE_B: int = CURVE.b()
+SQRT_EXP: int = (FIELD_PRIME + 1) // 4
 
 
 def point_to_str(pt: Point) -> str:
@@ -28,6 +29,9 @@ def is_valid_point(pt: Any, curve: CurveFp = CURVE) -> bool:
     """Check whether pt is a valid non-infinity point on the elliptic curve group G."""
     if pt is None or pt == INFINITY:
         return False
+    if isinstance(pt, (Point, PointJacobi)):
+        pt_curve = pt.curve() if callable(pt.curve) else pt.curve
+        return bool(pt_curve == curve)
     if not (hasattr(pt, "x") and hasattr(pt, "y")):
         return False
     try:
@@ -39,13 +43,64 @@ def is_valid_point(pt: Any, curve: CurveFp = CURVE) -> bool:
 
 
 def sub_points(P1: Point, P2: Point, q: int = ORDER) -> Point:
-    """Compute elliptic curve point subtraction P1 - P2 = P1 + (q - 1) * P2."""
+    """Compute elliptic curve point subtraction P1 - P2 = P1 + (-P2) in O(1) field ops."""
     if P2 == INFINITY:
         return P1
-    neg_P2 = (q - 1) * P2
+    neg_P2 = -P2
     if P1 == INFINITY:
         return neg_P2
     return P1 + neg_P2
+
+
+def tonelli_shanks(n: int, p: int = FIELD_PRIME) -> int | None:
+    """
+    Compute the modular square root y such that y^2 ≡ n (mod p) using the
+    Tonelli-Shanks algorithm (with the single-exponentiation fast path for p ≡ 3 mod 4).
+    Returns None if n is not a quadratic residue modulo p.
+    """
+    n %= p
+    if n == 0:
+        return 0
+
+    # Fast path for p ≡ 3 (mod 4), including secp256k1:
+    # Single modular exponentiation + 1 squaring check (eliminates separate Euler check)
+    if p & 3 == 3:
+        exp = SQRT_EXP if p == FIELD_PRIME else (p + 1) >> 2
+        y = pow(n, exp, p)
+        return y if (y * y) % p == n else None
+
+    # General Tonelli-Shanks for p ≡ 1 (mod 4)
+    if pow(n, (p - 1) >> 1, p) != 1:
+        return None
+
+    q = p - 1
+    s = 0
+    while q & 1 == 0:
+        q >>= 1
+        s += 1
+
+    z = 2
+    while pow(z, (p - 1) >> 1, p) != p - 1:
+        z += 1
+
+    m = s
+    c = pow(z, q, p)
+    t = pow(n, q, p)
+    r = pow(n, (q + 1) >> 1, p)
+
+    while t != 1:
+        i = 1
+        temp = (t * t) % p
+        while temp != 1:
+            temp = (temp * temp) % p
+            i += 1
+        b = pow(c, 1 << (m - i - 1), p)
+        m = i
+        c = (b * b) % p
+        t = (t * c) % p
+        r = (r * b) % p
+
+    return r
 
 
 def hash_func(q: int, *args: Any) -> int:
@@ -79,24 +134,26 @@ def hash_to_point(
     a: int = CURVE_A,
     b: int = CURVE_B,
 ) -> Point:
-    """Deterministically map a public key point P and scope ID (SID) to a curve point H_p(P, SID)."""
+    """
+    Deterministically map a public key point P and scope ID (SID) to a curve point H_p(P, SID)
+    using Try-and-Increment with Tonelli-Shanks modular square root and Jacobi projective points.
+    """
     ctr = 0
-    p_str = point_to_str(P).encode("utf-8")
-    sid_bytes = str(SID).encode("utf-8")
+    base_hasher = hashlib.sha256()
+    base_hasher.update(point_to_str(P).encode("utf-8"))
+    base_hasher.update(str(SID).encode("utf-8"))
 
     while True:
-        hasher = hashlib.sha256()
-        hasher.update(p_str)
-        hasher.update(sid_bytes)
+        hasher = base_hasher.copy()
         hasher.update(str(ctr).encode("utf-8"))
 
         x_cand = int.from_bytes(hasher.digest(), byteorder="big") % p
-        y_sq = (pow(x_cand, 3, p) + (a * x_cand) + b) % p
+        y_sq = (pow(x_cand, 3, p) + (a * x_cand) + b) % p if a else (pow(x_cand, 3, p) + b) % p
 
-        if pow(y_sq, (p - 1) // 2, p) == 1:
-            y = pow(y_sq, (p + 1) // 4, p)
+        y = tonelli_shanks(y_sq, p)
+        if y is not None and y != 0:
             try:
-                return Point(curve, x_cand, y)
+                return PointJacobi.from_affine(Point(curve, x_cand, y))
             except ValueError:
                 pass
         ctr += 1

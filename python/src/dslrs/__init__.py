@@ -28,6 +28,7 @@ from .utils import (
     is_valid_point,
     point_to_str,
     sub_points,
+    tonelli_shanks,
     verify_dleq_share,
 )
 

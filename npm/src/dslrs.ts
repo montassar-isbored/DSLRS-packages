@@ -127,6 +127,53 @@ export function hashFunc(q: bigint, ...args: unknown[]): bigint {
   return mod(bytesToNumberBE(digest), q);
 }
 
+export function tonelliShanks(n: bigint, p: bigint = FIELD_PRIME): bigint | null {
+  const val = mod(n, p);
+  if (val === 0n) return 0n;
+
+  if ((p & 3n) === 3n) {
+    const y = modPow(val, (p + 1n) >> 2n, p);
+    return mod(y * y, p) === val ? y : null;
+  }
+
+  if (modPow(val, (p - 1n) >> 1n, p) !== 1n) {
+    return null;
+  }
+
+  let q = p - 1n;
+  let s = 0n;
+  while ((q & 1n) === 0n) {
+    q >>= 1n;
+    s += 1n;
+  }
+
+  let z = 2n;
+  while (modPow(z, (p - 1n) >> 1n, p) !== p - 1n) {
+    z += 1n;
+  }
+
+  let m = s;
+  let c = modPow(z, q, p);
+  let t = modPow(val, q, p);
+  let r = modPow(val, (q + 1n) >> 1n, p);
+
+  while (t !== 1n) {
+    let i = 1n;
+    let temp = mod(t * t, p);
+    while (temp !== 1n) {
+      temp = mod(temp * temp, p);
+      i += 1n;
+    }
+    const b = modPow(c, 1n << (m - i - 1n), p);
+    m = i;
+    c = mod(b * b, p);
+    t = mod(t * c, p);
+    r = mod(r * b, p);
+  }
+
+  return r;
+}
+
 export function hashToPoint(
   P: ECPoint,
   SID: string,
@@ -137,8 +184,6 @@ export function hashToPoint(
   let ctr = 0;
   const pBytes = utf8Encoder.encode(pointToStr(P));
   const sidBytes = utf8Encoder.encode(String(SID));
-  const eulerExp = (p - 1n) / 2n;
-  const sqrtExp = (p + 1n) / 4n;
 
   while (true) {
     const hasher = sha256.create();
@@ -149,8 +194,8 @@ export function hashToPoint(
     const xCand = mod(bytesToNumberBE(hasher.digest()), p);
     const ySq = mod(modPow(xCand, 3n, p) + a * xCand + b, p);
 
-    if (modPow(ySq, eulerExp, p) === 1n) {
-      const y = modPow(ySq, sqrtExp, p);
+    const y = tonelliShanks(ySq, p);
+    if (y !== null && y !== 0n) {
       try {
         const pt = secp256k1.ProjectivePoint.fromAffine({ x: xCand, y });
         pt.assertValidity();
