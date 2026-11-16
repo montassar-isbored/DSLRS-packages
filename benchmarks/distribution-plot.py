@@ -14,7 +14,7 @@ def generate_distribution_plots(
         return
 
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-    fig.suptitle("Cryptographic Operation Latency Distributions by n size (100 Runs)", fontsize=16)
+    fig.suptitle("", fontsize=1)
 
     operations = [
         ("Sign_Time_s", "Sign Latency", axes[0, 0]),
